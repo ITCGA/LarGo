@@ -2,7 +2,7 @@ CC=mpic++
 
 all	:swap stats
 swap    : graph.o kmerGraph.o sequence.o mympi.o
-	$(CC) -O3 graph.o kmerGraph.o sequence.o mympi.o  -o swap -lpthread
+	$(CC) -O3 graph.o kmerGraph.o sequence.o mympi.o -lpthread  -o swap
 stats   :stats.cpp
 	$(CC) stats.cpp -o stats	
 

@@ -31,7 +31,6 @@ public:
 	
   	//parameters
 	int hashLength;
-	unsigned long long MASK;
 	int filterThreshold;
 	int cutoffThreshold;
 	int kmerGraphFlag;

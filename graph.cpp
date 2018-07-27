@@ -16,6 +16,8 @@
 
 #define LDEBUG 0 
 
+typedef unsigned long long ull;
+
 using namespace std;
 using namespace __gnu_cxx;
 
@@ -31,6 +33,11 @@ namespace __gnu_cxx
                         return (x >> 32L) ^ hash< int >()( x & 0xFFFFFFFF );
                 }
         };
+		template<> struct hash< LKmer > {
+                size_t operator()( const LKmer & x ) const {
+                        return hash< unsigned long long >()( x.seq3 );
+                }
+        };
 }
 
 class arc
@@ -44,7 +51,7 @@ class node
     public:
 	string arcs[8];				//0-3 arc, 4-7 twinarc
 	unsigned char multiplicity[8];	
-	unsigned long long nodeID;
+	LKmer nodeID;
 	pthread_mutex_t lockFlag;
 	char deleteFlag;	
 	
@@ -64,21 +71,21 @@ class node
 	}
 	~node();
 		
-	void init(unsigned long long ID, arc kmoleculeArc, parameter *parameters);
+	void init(LKmer ID, arc kmoleculeArc, parameter *parameters);
 	void Union(unsigned char arc, parameter *parameters);
 	const char *getLeftEdge(unsigned char& curMulti);
 	const char *getRightEdge(unsigned char& curMulti);
 	
-	int  getNodeID(int k, unsigned long long &ID, parameter *parameters);
-	int  getReverseEdge(int k, unsigned long long &ID, int &IDindex, parameter *parameters);
-	int  getLeftNodeID(unsigned long long& ID,  parameter *parameters);
-	int  getRightNodeID(unsigned long long& ID, parameter *parameters);
-	int  getSrcNodeEdge(unsigned long long ID, int srcDirection, string srcEdge, int srcMulti, int direction, parameter *parameters);
-	void extendEdge(unsigned long long neighbourID, string edge, parameter *parameters);
+	int  getNodeID(int k, LKmer &ID, parameter *parameters);
+	int  getReverseEdge(int k, LKmer &ID, int &IDindex, parameter *parameters);
+	int  getLeftNodeID(LKmer& ID,  parameter *parameters);
+	int  getRightNodeID(LKmer& ID, parameter *parameters);
+	int  getSrcNodeEdge(LKmer ID, int srcDirection, string srcEdge, int srcMulti, int direction, parameter *parameters);
+	void extendEdge(LKmer neighbourID, string edge, parameter *parameters);
 	void cutoff(int threshold);
 };
 
-void node::init(unsigned long long kmerID, arc kmoleculeArc, parameter *parameters)
+void node::init(LKmer kmerID, arc kmoleculeArc, parameter *parameters)
 {
     nodeID = kmerID;
     deleteFlag = 1;
@@ -161,7 +168,7 @@ const char *node::getRightEdge(unsigned char& curMultiplicity)
 }
 
 
-int node::getNodeID(int k, unsigned long long &ID, parameter *parameters)
+int node::getNodeID(int k, LKmer &ID, parameter *parameters)
 {
     int ret;
 
@@ -195,7 +202,7 @@ int node::getNodeID(int k, unsigned long long &ID, parameter *parameters)
     return ret; 
 }
 
-int node::getReverseEdge(int k, unsigned long long &ID, int &IDindex, parameter *parameters)
+int node::getReverseEdge(int k, LKmer &ID, int &IDindex, parameter *parameters)
 {
     int ret;
 
@@ -238,7 +245,7 @@ int node::getReverseEdge(int k, unsigned long long &ID, int &IDindex, parameter 
 }
 
 
-int node::getLeftNodeID(unsigned long long& ID, parameter *parameters)
+int node::getLeftNodeID(LKmer& ID, parameter *parameters)
 {
     int count = 0, index=-1, ret;
     for(int i=4; i<8; i++)	
@@ -251,7 +258,7 @@ int node::getLeftNodeID(unsigned long long& ID, parameter *parameters)
     return this->getNodeID(index, ID, parameters); 
 }
 
-int node::getRightNodeID(unsigned long long& ID, parameter *parameters)
+int node::getRightNodeID(LKmer& ID, parameter *parameters)
 {
     int count=0, index, ret;
     for(int i=0;i<4;i++)	
@@ -260,7 +267,7 @@ int node::getRightNodeID(unsigned long long& ID, parameter *parameters)
     return getNodeID(index, ID, parameters);
 }
 
-int node::getSrcNodeEdge(unsigned long long srcNodeID, int srcDirection, string srcEdge, int srcMulti, int direction, parameter *parameters)
+int node::getSrcNodeEdge(LKmer srcNodeID, int srcDirection, string srcEdge, int srcMulti, int direction, parameter *parameters)
 {
 	int startIndex, endIndex, index=-1, ret;
 	if(direction <0 && direction>2)	
@@ -302,7 +309,7 @@ int node::getSrcNodeEdge(unsigned long long srcNodeID, int srcDirection, string 
                 }
                 else    ret = 1;		//positive side
                 assert(retDescriptor.length() == parameters->hashLength);
-                unsigned long long ID = kmerGraph::stringToLongLong(retDescriptor.c_str(),0,retDescriptor.length(),parameters);
+                LKmer ID = kmerGraph::stringToLongLong(retDescriptor.c_str(),0,retDescriptor.length(),parameters);
 
 		string srcArc = descriptor;
 		reverse(srcArc.begin(), srcArc.end());
@@ -323,7 +330,7 @@ int node::getSrcNodeEdge(unsigned long long srcNodeID, int srcDirection, string 
 	return ret+(index<<2);
 }
 
-void node::extendEdge(unsigned long long neighbourID, string edge, parameter *parameters)
+void node::extendEdge(LKmer neighbourID, string edge, parameter *parameters)
 {
     string localedge;
     string neighbourStr = kmerGraph::longLongToString(neighbourID, parameters);
@@ -350,8 +357,8 @@ void node::extendEdge(unsigned long long neighbourID, string edge, parameter *pa
 class distNodeGraph
 {
     public:
-	hash_map<unsigned long long, arc  > kmolecules;
-	hash_map<unsigned long long, node > nodes;
+	hash_map<LKmer, arc  > kmolecules;
+	hash_map<LKmer, node > nodes;
 	vector<string> RemovedEdges;
 	
 	parameter *parameters;
@@ -359,7 +366,7 @@ class distNodeGraph
     	
 	MPI_Request recvFuncRequest;	//monitering the Irecv Request
 	char        recvFuncFlag;	//Huang up a Irecv Routine at the first time
-	unsigned long long recvFuncData[3]; //used to store any command message received by Irecv Routine
+	LKmer recvFuncData[3]; //used to store any command message received by Irecv Routine
 
 	double  totalWorkTime, totalTime;		
 
@@ -382,18 +389,15 @@ class distNodeGraph
 	}
 
     public:
-	unsigned long long getProcsID(unsigned long long kmerID, int hashLength, MPIEnviroment *MPIcontrol);
+	unsigned long long getProcsID(LKmer kmerID, int hashLength, MPIEnviroment *MPIcontrol);
 
 	void arcFrequency(parameter *parameters);
-	void printNode(unsigned long long nodeID, FILE *fp);
-	void printDistNodeGraph(parameter *parameters, MPIEnviroment *MPIcontrol);
+	void printNode(LKmer nodeID, FILE *fp);
 	void printLocalNodeGraph(parameter *parameters, MPIEnviroment *MPIcontrol);
 	void readDistNodeGraph(parameter *parameters, MPIEnviroment *MPIcontrol);
 	
 	void recvBufDistNodeGraph(char *recvbuf, parameter *parameters, MPIEnviroment *MPIcontrol);
 	char* gatherDistNodeGraph(parameter *parameters, MPIEnviroment *MPIcontrol);
-	bool checkDistNodeGraph();
-	bool checkLocalNodeGraph(parameter *parameters);
 	void constructDistNodeGraph(kmerGraph *kGraph, parameter *parameters, MPIEnviroment *MPIcontrol);
 	void simplifyDistNodeGraph(parameter *parameters, MPIEnviroment *MPIcontrol);
 	void cutoffGraph(MPIEnviroment *MPIcontrol, int threshold);
@@ -426,7 +430,7 @@ class distNodeGraph
 
 void distNodeGraph::arcFrequency(parameter *parameters)
 {
-   	hash_map<unsigned long long, arc>::iterator it;
+   	hash_map<LKmer, arc>::iterator it;
 
 	FILE *FP = fopen(parameters->arcFrequency, "w");
 	
@@ -447,70 +451,33 @@ void distNodeGraph::arcFrequency(parameter *parameters)
    	fclose(FP);	
 }
 
-/*
-unsigned long long distNodeGraph::getProcsID(unsigned long long kmerID, int hashLength, MPIEnviroment *MPIcontrol)
+unsigned long long distNodeGraph::getProcsID(LKmer kmerID, int hashLength, MPIEnviroment *MPIcontrol)
 {
-    	unsigned long long ret = 0, tmpID = kmerID;
-    	for(int i=0;i<hashLength;i++)
-    	{
-		ret = ret * 4;
-//		ret |= ( (unsigned long long) 3 - (tmpID & (unsigned long long)3) );
-		ret += ( 3 - tmpID%4 );
-		tmpID = tmpID / 4;
-    	}
-//    	ret = ret ^ kmerID;
-  	//  return ( (ret % (unsigned long long ) MersPrime) % (unsigned long long) MPIcontrol->nprocs);
-  	//  return ( (ret ) % (unsigned long long) MPIcontrol->nprocs);
-	if(ret<kmerID)	ret = kmerID;
-
-	double tmp = ((sqrt(5.0)-1)/2) * ret;
-	double rr  = tmp - floor(tmp);
-	return floor(rr * MPIcontrol->nprocs);
-}
-*/
-
-unsigned long long distNodeGraph::getProcsID(unsigned long long kmerID, int hashLength, MPIEnviroment *MPIcontrol)
-{
-    	unsigned long long revKmer = 0, tmpID = kmerID;
-    	for(int i=0;i<hashLength;i++)
-    	{
-		revKmer = revKmer * 4;
-		revKmer += ( 3 - tmpID%4 );
-		tmpID = tmpID / 4;
-    	}
-
+	// return kmerGraph::getProcsID(kmerID, hashLength, MPIcontrol);
+	LKmer revKmer = 0, tmpID = kmerID;
+    for(int i=0; i<hashLength; i++){
+        revKmer <<= 2;
+        revKmer = revKmer | (~(tmpID&3))&3;
+        tmpID >>= 2;
+    }
 	if(revKmer>kmerID) revKmer = kmerID;  
 
-         unsigned int factor = 19;
-         unsigned int numBytes = (hashLength + 3) / 4;
-			
-         unsigned int sum = 0;
-         for(int i = 0; i < numBytes; i++){
-                 sum = sum * factor + (revKmer & 0xFF);
-                 revKmer >>= 8;
-         }
-         return sum % MPIcontrol->nprocs; 
+	unsigned int factor = 19;
+	unsigned int numBytes = (hashLength + 3) / 4;
+
+	unsigned int sum = 0;
+	for(int i = 0; i < numBytes; i++){
+	     sum = sum * factor + (revKmer & 0xFF);
+	     revKmer >>= 8;
+	}
+	return sum % MPIcontrol->nprocs; 
 }
 
-/*
-int Alsha::calcDestinationProc(AlshaKmerData kmerData)
-{
-
-         unsigned int factor = 19;
-         unsigned int numBytes = (AlshaParams::KMERLENGTH + 3) / 4;
-         unsigned int sum = 0;
-         for(int i = 0; i < numBytes; i++){
-                 sum = sum * factor + (kmerData & 0xFF);
-                 kmerData >>= 8;
-         }
-         return sum % AlshaParams::numProcs;
-}
-*/
-void distNodeGraph::printNode(unsigned long long nodeID, FILE *fp)
+void distNodeGraph::printNode(LKmer nodeID, FILE *fp)
 {
 	if(nodes.find(nodeID) == nodes.end())
 	{
-		fprintf(fp, "|proc:%d nodeID = %llu can not find in this process\n", MPIcontrol->rank, nodeID);
+		fprintf(fp, "|proc:%d nodeID = %llu can not find in this process\n", MPIcontrol->rank, nodeID.seq3);
 		exit(0);
 	}
 
@@ -524,37 +491,14 @@ void distNodeGraph::printNode(unsigned long long nodeID, FILE *fp)
 	
 	if(len+1000>10000000)	{printf("error \n"); exit(0);}
 	
-        sprintf(line, "|proc:%d >%llu@ %s# %s# %s# %s# %s# %s# %s# %s# %d# %d# %d# %d# %d# %d# %d# %d#", MPIcontrol->rank, nodes[nodeID].nodeID, nodes[nodeID].arcs[0].c_str(), nodes[nodeID].arcs[1].c_str(), nodes[nodeID].arcs[2].c_str(), nodes[nodeID].arcs[3].c_str(), nodes[nodeID].arcs[4].c_str(), nodes[nodeID].arcs[5].c_str(), nodes[nodeID].arcs[6].c_str(), nodes[nodeID].arcs[7].c_str(), nodes[nodeID].multiplicity[0], nodes[nodeID].multiplicity[1], nodes[nodeID].multiplicity[2], nodes[nodeID].multiplicity[3], nodes[nodeID].multiplicity[4], nodes[nodeID].multiplicity[5], nodes[nodeID].multiplicity[6], nodes[nodeID].multiplicity[7]);
-
-/*
-	if( !(line[1]>='0' &&  line[1]<='9') )	
-	{
-		printf("|proc:%d nodeID = %llu %llu %s error find in this process\n", MPIcontrol->rank, nodes[nodeID].nodeID, nodeID, line);
-		exit(0);
-	}
-*/
 	fprintf(fp, "%s\n", line);
 	fflush(stdout);
-/*
-	printf("|proc:%d ID=%llu, Descriptor=%s %d\n",MPIcontrol->rank, tmp.nodeID, descriptor.c_str(), tmp.lockFlag);
-        for(int i=0;i<4;i++)
-        {
-            if(!tmp.arcs[i].empty())
-            printf("|proc:%d -(%s|%d)-",MPIcontrol->rank, tmp.arcs[i].c_str(), tmp.multiplicity[i]);
-        }
-        printf("\n");
-        for(int i=4;i<8;i++)
-        {
-	        if(!tmp.arcs[i].empty())
-	        printf("|proc:%d -(%s|%d)-",MPIcontrol->rank, tmp.arcs[i].c_str(), tmp.multiplicity[i]);
-	}
-	printf("\n|proc:%d--------------------------------------\n", MPIcontrol->rank);
-*/
+
 }
 
 void distNodeGraph::printLocalNodeGraph(parameter *parameters, MPIEnviroment *MPIcontrol)
 {
-    hash_map<unsigned long long, node>::iterator it;
+    hash_map<LKmer, node>::iterator it;
 
     FILE *fp = fopen(parameters->kmerGraph, "w");
     for(it=nodes.begin();it!=nodes.end();it++)
@@ -566,7 +510,6 @@ void distNodeGraph::printLocalNodeGraph(parameter *parameters, MPIEnviroment *MP
 	for(int i=0;i<8;i++)	if(it->second.arcs[i].length() > 0)	arcFlag=1;
 	if(arcFlag==0)		continue;	
 
-        fprintf(fp, "%llu %s# %s# %s# %s# %s# %s# %s# %s# %d %d %d %d %d %d %d %d\n",it->second.nodeID, it->second.arcs[0].c_str(), it->second.arcs[1].c_str(), it->second.arcs[2].c_str(), it->second.arcs[3].c_str(), it->second.arcs[4].c_str(), it->second.arcs[5].c_str(), it->second.arcs[6].c_str(), it->second.arcs[7].c_str(), it->second.multiplicity[0], it->second.multiplicity[1], it->second.multiplicity[2], it->second.multiplicity[3], it->second.multiplicity[4], it->second.multiplicity[5], it->second.multiplicity[6], it->second.multiplicity[7]);
     }
     fclose(fp);
 }
@@ -575,10 +518,10 @@ void distNodeGraph::printLocalNodeGraph(parameter *parameters, MPIEnviroment *MP
 
 char* distNodeGraph::gatherDistNodeGraph(parameter *parameters, MPIEnviroment *MPIcontrol)
 {
-    hash_map<unsigned long long, node>::iterator it;
+    hash_map<LKmer, node>::iterator it;
     vector<unsigned long long> vlen;
 
-    unsigned long long int len = 0;	
+    unsigned long long len = 0;	
     for(it=nodes.begin();it!=nodes.end();it++)
     {
 	unsigned long long  length = 0;
@@ -591,8 +534,8 @@ char* distNodeGraph::gatherDistNodeGraph(parameter *parameters, MPIEnviroment *M
 
 	for(int i=0;i<8;i++)	length += it->second.arcs[i].length()+1;  //each string is end with '#'
 
-	length += 20 + 8 * 3 + 16 + 1;  //20 nodeID, 24 multiplicity, 16 space, 1 for '\n';
-	
+	// length += 20 + 8 * 3 + 16 + 1;  //20 nodeID, 24 multiplicity, 16 space, 1 for '\n';
+	length += 80 + 8 * 3 + 19 + 1;
 	vlen.push_back(length);
 	len += length;
     }
@@ -631,17 +574,23 @@ char* distNodeGraph::gatherDistNodeGraph(parameter *parameters, MPIEnviroment *M
     int  index = 0;
     for(it=nodes.begin();it!=nodes.end();it++)
     {
-	if(it->second.deleteFlag==0)	continue;
+		if(it->second.deleteFlag==0)	
+			continue;
 
-	//clear isolated nodes
-	int arcFlag=0;
-	for(int i=0;i<8;i++)	if(it->second.arcs[i].length() > 0)	arcFlag=1;
-	if(arcFlag==0)		continue;	
+		//clear isolated nodes
+		int arcFlag=0;
+		for(int i=0;i<8;i++)	
+			if(it->second.arcs[i].length() > 0)	
+				arcFlag=1;
+		if(arcFlag==0)		
+			continue;	
 
-        sprintf(pbuf, "%llu %s# %s# %s# %s# %s# %s# %s# %s# %d %d %d %d %d %d %d %d",it->second.nodeID, it->second.arcs[0].c_str(), it->second.arcs[1].c_str(), it->second.arcs[2].c_str(), it->second.arcs[3].c_str(), it->second.arcs[4].c_str(), it->second.arcs[5].c_str(), it->second.arcs[6].c_str(), it->second.arcs[7].c_str(), it->second.multiplicity[0], it->second.multiplicity[1], it->second.multiplicity[2], it->second.multiplicity[3], it->second.multiplicity[4], it->second.multiplicity[5], it->second.multiplicity[6], it->second.multiplicity[7]);
-    
-	for(int i=strlen(pbuf); i<vlen[index]; i++)    pbuf[i] = ' ';
-	pbuf[vlen[index]-1] = '\n';
+        sprintf(pbuf, "%llu %llu %llu %llu %s# %s# %s# %s# %s# %s# %s# %s# %d %d %d %d %d %d %d %d",it->second.nodeID.seq3,it->second.nodeID.seq2,it->second.nodeID.seq1,it->second.nodeID.seq0, it->second.arcs[0].c_str(), it->second.arcs[1].c_str(), it->second.arcs[2].c_str(), it->second.arcs[3].c_str(), it->second.arcs[4].c_str(), it->second.arcs[5].c_str(), it->second.arcs[6].c_str(), it->second.arcs[7].c_str(), it->second.multiplicity[0], it->second.multiplicity[1], it->second.multiplicity[2], it->second.multiplicity[3], it->second.multiplicity[4], it->second.multiplicity[5], it->second.multiplicity[6], it->second.multiplicity[7]);
+        // sprintf(pbuf, "%llu %s# %s# %s# %s# %s# %s# %s# %s# %d %d %d %d %d %d %d %d",it->second.nodeID.seq3, it->second.arcs[0].c_str(), it->second.arcs[1].c_str(), it->second.arcs[2].c_str(), it->second.arcs[3].c_str(), it->second.arcs[4].c_str(), it->second.arcs[5].c_str(), it->second.arcs[6].c_str(), it->second.arcs[7].c_str(), it->second.multiplicity[0], it->second.multiplicity[1], it->second.multiplicity[2], it->second.multiplicity[3], it->second.multiplicity[4], it->second.multiplicity[5], it->second.multiplicity[6], it->second.multiplicity[7]);
+    	// printf("%s\n", pbuf);
+		for(int i=strlen(pbuf); i<vlen[index]; i++)    
+			pbuf[i] = ' ';
+		pbuf[vlen[index]-1] = '\n';
         
         pbuf += vlen[index];
         index ++; 
@@ -650,28 +599,28 @@ char* distNodeGraph::gatherDistNodeGraph(parameter *parameters, MPIEnviroment *M
     char *recvBuf=NULL;
     if(MPIcontrol->rank ==0)	
     {
-	recvBuf = new char [Totlen+1];
+		recvBuf = new char [Totlen+1];
         assert(recvBuf != NULL);
     }
 
     if(MPIcontrol->rank ==0)
     {
     	for(int i=0;i<MPIcontrol->nprocs; i++)
-	{
-		if(recvLen[i]>2147483647)	
 		{
-    			printf("|proc: %d data size is too large, MPI_recv will fail here on data gathering\n", MPIcontrol->rank);
-			exit(0);
-		}
-//    		printf("|proc:%d Recving %llu data at %llu from Proc:%d (tag %d) \n", MPIcontrol->rank, recvLen[i], recvPos[i], i, i);
+			if(recvLen[i]>2147483647)	
+			{
+	    		printf("|proc: %d data size is too large, MPI_recv will fail here on data gathering\n", MPIcontrol->rank);
+				exit(0);
+			}
+	//    		printf("|proc:%d Recving %llu data at %llu from Proc:%d (tag %d) \n", MPIcontrol->rank, recvLen[i], recvPos[i], i, i);
         	MPI_Irecv(recvBuf+recvPos[i], recvLen[i], MPI_CHAR, i, i, MPI_COMM_WORLD, &recv_reqs[i]);
-   	} 
+	   	} 
    }
 
     if(len>2147483647)	
     {
-   	printf("|proc: %d data size is too large, MPI_recv will fail here on data gathering\n", MPIcontrol->rank);
-	exit(0);
+	   	printf("|proc: %d data size is too large, MPI_recv will fail here on data gathering\n", MPIcontrol->rank);
+		exit(0);
     }
 //    printf("|proc:%d Sending %llu data to Proc:0(tag=%d) start\n", MPIcontrol->rank, len, MPIcontrol->rank);
     MPI_Send(buf, len, MPI_CHAR, 0, MPIcontrol->rank, MPI_COMM_WORLD);
@@ -695,152 +644,6 @@ char* distNodeGraph::gatherDistNodeGraph(parameter *parameters, MPIEnviroment *M
     else			return NULL;
 }
 
-void distNodeGraph::printDistNodeGraph(parameter *parameters, MPIEnviroment *MPIcontrol)
-{
-    hash_map<unsigned long long, node>::iterator it;
-    vector<unsigned long long> vlen;
-
-    unsigned long long int len = 0;	
-    for(it=nodes.begin();it!=nodes.end();it++)
-    {
-	unsigned long long  length = 0;
-	if(it->second.deleteFlag==0)	continue;
-
-	//clear isolated nodes
-	int arcFlag=0;
-	for(int i=0;i<8;i++)	if(it->second.arcs[i].length() > 0)	arcFlag=1;
-	if(arcFlag==0)		continue;	
-
-	for(int i=0;i<8;i++)	length += it->second.arcs[i].length()+1;  //each string is end with '#'
-
-	length += 20 + 8 * 3 + 16 + 1;  //20 nodeID, 24 multiplicity, 16 space, 1 for '\n';
-	
-	vlen.push_back(length);
-	len += length;
-    }
-
-    unsigned long long *recvLen=NULL, *recvPos=NULL, Totlen=0;
-    MPI_Request *recv_reqs = NULL;
-    MPI_Status  *status  = NULL;
-
-    if(MPIcontrol->rank == 0)
-    {
-	recvLen   = new unsigned long long [MPIcontrol->nprocs];
-        assert(recvLen != NULL);
-	recvPos   = new unsigned long long [MPIcontrol->nprocs];
-        assert(recvPos != NULL);
-	recv_reqs = new MPI_Request [MPIcontrol->nprocs];
-        assert(recv_reqs != NULL);
-	status    = new MPI_Status  [MPIcontrol->nprocs];
-    	assert(status != NULL);
-    }
-
-    MPI_Gather(&len, 1, MPI_LONG_LONG_INT, recvLen, 1, MPI_LONG_LONG_INT, 0, MPI_COMM_WORLD);
-
-    if(MPIcontrol->rank == 0)
-    {
-        recvPos[0] = 0;
-        for(int i=1;i<MPIcontrol->nprocs;i++)	recvPos[i] = recvPos[i-1] + recvLen[i-1];
-        Totlen = 0;
-        for(int i=0;i<MPIcontrol->nprocs;i++)	Totlen += recvLen[i];
-       
-    	printf("|proc:%d totlen=%llu in this process\n", MPIcontrol->rank, Totlen);
-    }
-    
-    char *buf = new char [len+1];
-    assert(buf != NULL);
-    char *pbuf = buf;
-    int  index = 0;
-    for(it=nodes.begin();it!=nodes.end();it++)
-    {
-	if(it->second.deleteFlag==0)	continue;
-
-	//clear isolated nodes
-	int arcFlag=0;
-	for(int i=0;i<8;i++)	if(it->second.arcs[i].length() > 0)	arcFlag=1;
-	if(arcFlag==0)		continue;	
-
-        sprintf(pbuf, "%llu %s# %s# %s# %s# %s# %s# %s# %s# %d %d %d %d %d %d %d %d",it->second.nodeID, it->second.arcs[0].c_str(), it->second.arcs[1].c_str(), it->second.arcs[2].c_str(), it->second.arcs[3].c_str(), it->second.arcs[4].c_str(), it->second.arcs[5].c_str(), it->second.arcs[6].c_str(), it->second.arcs[7].c_str(), it->second.multiplicity[0], it->second.multiplicity[1], it->second.multiplicity[2], it->second.multiplicity[3], it->second.multiplicity[4], it->second.multiplicity[5], it->second.multiplicity[6], it->second.multiplicity[7]);
-    
-	for(int i=strlen(pbuf); i<vlen[index]; i++)    pbuf[i] = ' ';
-	pbuf[vlen[index]-1] = '\n';
-        
-        pbuf += vlen[index];
-        index ++; 
-    }
-
-    char *recvBuf=NULL;
-    if(MPIcontrol->rank ==0)	
-    {
-	recvBuf = new char [Totlen+1];
-        assert(recvBuf != NULL);
-    }
-
-    if(MPIcontrol->rank ==0)
-    {
-    	for(int i=0;i<MPIcontrol->nprocs; i++)
-	{
-		if(recvLen[i]>2147483647)	
-		{
-    			printf("|proc: %d data size is too large, MPI_recv will fail here on data gathering\n", MPIcontrol->rank);
-			exit(0);
-		}
-//    		printf("|proc:%d Recving %llu data at %llu from Proc:%d (tag %d) \n", MPIcontrol->rank, recvLen[i], recvPos[i], i, i);
-        	MPI_Irecv(recvBuf+recvPos[i], recvLen[i], MPI_CHAR, i, i, MPI_COMM_WORLD, &recv_reqs[i]);
-   	} 
-   }
-
-    if(len>2147483647)	
-    {
-   	printf("|proc: %d data size is too large, MPI_recv will fail here on data gathering\n", MPIcontrol->rank);
-	exit(0);
-    }
-//  printf("|proc:%d Sending %llu data to Proc:0(tag=%d) start\n", MPIcontrol->rank, len, MPIcontrol->rank);
-    MPI_Send(buf, len, MPI_CHAR, 0, MPIcontrol->rank, MPI_COMM_WORLD);
-
-    if(MPIcontrol->rank ==0)  MPI_Waitall(MPIcontrol->nprocs, recv_reqs,status);
-//  printf("|proc:%d Sending %llu data to Proc:0 finished n", MPIcontrol->rank, len);
-
-    if(MPIcontrol->rank == 0)  recvBuf[Totlen] = 0;
-
-    if(MPIcontrol->rank == 0 )
-    {
-       	FILE *fp = fopen(parameters->graphPath, "w");
-       	if(fp==NULL)	
-        {
-    		printf("|proc: %d Failed to Open File %s\n", MPIcontrol->rank, parameters->graphPath);
-		exit(0);
-    	}
-
-    	fprintf(fp, "%s\n", recvBuf);
-    	fclose(fp);
-/*
-        for(int i=0; i<MPIcontrol->nprocs; i++)
-	{
-	    char fileName[100];
-	    strcpy(fileName, parameters->graphPath);
-	    sprintf(fileName+strlen(fileName), "GatherGraph_%d", i);
-	    fp = fopen(fileName, "w");
-
-	    for(int j=recvPos[i]; j<recvPos[i]+recvLen[i];j++)  
-		fprintf(fp, "%c", recvBuf[j]);
-
-            fclose(fp); 	
-	}	
-*/  }
-
-    delete(buf);
-    vlen.clear();
-
-    if(MPIcontrol->rank == 0)
-    {
-        delete(recvLen);
-        delete(recvPos);
-        delete(recv_reqs);
-        delete(status);
-        delete(recvBuf);
-    }
-}
 
 void distNodeGraph::recvBufDistNodeGraph(char *recvbuf, parameter *parameters, MPIEnviroment *MPIcontrol)
 {
@@ -854,19 +657,38 @@ void distNodeGraph::recvBufDistNodeGraph(char *recvbuf, parameter *parameters, M
 		exit(0);
     	}
 
-	unsigned long long tmpID;
+	unsigned long long tmpull;   //*******************此处本来是unsigned long long********************
 	int tmpMul;
-	
 	char *pbuf = recvbuf;
 	char *ebuf;
 
 	int counter = 0;
 	while(*pbuf!=0)
 	{
-		tmpID = 0;
-		while(*pbuf>='0' && *pbuf<='9')	tmpID = tmpID*10+ *pbuf++ - '0';
-		tmp.nodeID = tmpID;
-
+		
+		// tmpID = 0;
+		// while(*pbuf>='0' && *pbuf<='9')	tmpID = tmpID*10+ *pbuf++ - '0';
+		// tmp.nodeID = tmpID;
+		// 此处改为4个数字单独传需要取四次
+		tmpull = 0;
+		while(*pbuf>='0' && *pbuf<='9')	
+			tmpull = tmpull*10+*pbuf++ -'0';
+		tmp.nodeID.seq3 = tmpull;
+		while(*pbuf == ' ') pbuf++;
+		tmpull = 0;
+		while(*pbuf>='0' && *pbuf<='9')	
+			tmpull = tmpull*10+*pbuf++ -'0';
+		tmp.nodeID.seq2 = tmpull;
+		while(*pbuf == ' ') pbuf++;
+		tmpull = 0;
+		while(*pbuf>='0' && *pbuf<='9')	
+			tmpull = tmpull*10+*pbuf++ -'0';
+		tmp.nodeID.seq1 = tmpull;
+		while(*pbuf == ' ') pbuf++;
+		tmpull = 0;
+		while(*pbuf>='0' && *pbuf<='9')	
+			tmpull = tmpull*10+*pbuf++ -'0';
+		tmp.nodeID.seq0 = tmpull;
 		while(*pbuf == ' ')  pbuf++; 
 		
 		for(int i=0;i<8;i++)
@@ -906,7 +728,7 @@ void distNodeGraph::readDistNodeGraph(parameter *parameters, MPIEnviroment *MPIc
 		exit(0);
 	}
 	
-	unsigned long long tmpID;
+	LKmer tmpID;
 	int tmpMul;
 	char *str = new char [100000000];
 
@@ -940,112 +762,6 @@ void distNodeGraph::readDistNodeGraph(parameter *parameters, MPIEnviroment *MPIc
 	printf("|proc:%d %d nodes in distGraph\n", MPIcontrol->rank, this->nodes.size());
 }
 
-bool distNodeGraph::checkDistNodeGraph()
-{
-    hash_map<unsigned long long, node>::iterator it;	
-    for(it=nodes.begin(); it!=nodes.end();it++)
-    {
-   	unsigned long long srcNodeID = it->second.nodeID;
-	
-	if(it->second.deleteFlag == 0) continue;
-
-	for(int k=0;k<8;k++)
-	{
-		if(nodes[srcNodeID].arcs[k].length()==0)	continue;
-		string strdes = kmerGraph::longLongToString(srcNodeID, parameters);
-		
-		if(k>3)	
-		{
-			reverse(strdes.begin(), strdes.end());
-			for(int j=0;j<strdes.length();j++)
-				strdes[j] = parameters->nucleotideReverse[strdes[j]];
-		}
-
-		strdes += nodes[srcNodeID].arcs[k];
-
-		int strpos = strdes.length() - parameters->hashLength;
-		string newDes = strdes.substr(strpos);
-
-		string reverseStr = newDes;
-		reverse(reverseStr.begin(), reverseStr.end());
-		for(int j=0;j<reverseStr.length();j++)
-			reverseStr[j] = parameters->nucleotideReverse[reverseStr[j]];
-		if(newDes<reverseStr)	newDes = reverseStr;
-		assert(newDes.length() == parameters->hashLength);
-		unsigned long long dstNodeID = kmerGraph::stringToLongLong(newDes.c_str(), 0, newDes.length(), parameters);
-			
-		int i, index=-1;
-    	for(i=0;i<8;i++)
-    	{
-    		if(nodes[dstNodeID].arcs[i].length()==0)	continue;
-			string descriptor = kmerGraph::longLongToString(dstNodeID, parameters);
-		
-    		if(i>3)	//negative side k-mers
-			{
-				reverse(descriptor.begin(), descriptor.end());
-
-    			for(int j=0;j<descriptor.length();j++)	
-				descriptor[j] = parameters->nucleotideReverse[descriptor[j]];
-			}
-
-    			descriptor += nodes[dstNodeID].arcs[i];
-
-			int pos = descriptor.length()-parameters->hashLength;
-
-			string retDescriptor = descriptor.substr(pos);
-
-			string reverseStr = retDescriptor;
-			reverse(reverseStr.begin(), reverseStr.end());
-			for(int j=0;j<reverseStr.length();j++)
-	    		reverseStr[j] = parameters->nucleotideReverse[reverseStr[j]];
-
-			if(retDescriptor < reverseStr)	retDescriptor = reverseStr;
-        		
-			assert(retDescriptor.length() == parameters->hashLength);
-    	   		unsigned long long ID = kmerGraph::stringToLongLong(retDescriptor.c_str(),0,retDescriptor.length(),parameters);
-			
-			string edge1 = descriptor;
-			string edge2 = strdes;		
-			reverse(edge2.begin(), edge2.end());
-			for(int j=0;j<edge2.length();j++)	edge2[j] = parameters->nucleotideReverse[edge2[j]];
-			
-			if(ID == srcNodeID && nodes[srcNodeID].multiplicity[k] == nodes[dstNodeID].multiplicity[i] && edge1 == edge2)  break;
-		}
-		if(i==8)	
-		{
-			printf("src=%lld dst=%lld Coherence error in distNodeGraph\n", srcNodeID, dstNodeID);
-			printNode(srcNodeID, stdout);
-			printNode(dstNodeID, stdout);
-			assert(0);
-			exit(0);
-			return false;
-		}
-	}
-    }
-    return true;
-}
-
-bool distNodeGraph::checkLocalNodeGraph(parameter *parameters)
-{
-    hash_map<unsigned long long, node>::iterator it;	
-    for(it=nodes.begin(); it!=nodes.end();it++)
-    {
-   	unsigned long long srcNodeID = it->second.nodeID;
-	
-	if(it->second.deleteFlag == 0) continue;
-
-	for(int k=0;k<8;k++)
-	{
-	    unsigned long long ID;
-	    int IDindex;
-            int Ret = it->second.getReverseEdge(k, ID, IDindex, parameters);			
-	    assert( nodes[it->first].multiplicity[k]  == nodes[ID].multiplicity[IDindex]  );
-	    assert( nodes[it->first].arcs[k].length() == nodes[ID].arcs[IDindex].length() ); 	
-	}
-    }
-    return true;
-}
-
 void distNodeGraph::constructDistNodeGraph(kmerGraph *kGraph, parameter *parameters, MPIEnviroment *MPIcontrol)
 {
 
@@ -1053,7 +769,6 @@ void distNodeGraph::constructDistNodeGraph(kmerGraph *kGraph, parameter *paramet
 	while(kGraph->constructKmerGraph(parameters, MPIcontrol)!=0)
 	{
 		kGraph->distributeKmerGraph(parameters, MPIcontrol);	
-
 		t0 = clock();
 		for(int i=0;i<kGraph->size; i++)
 		{
@@ -1087,13 +802,14 @@ void distNodeGraph::constructDistNodeGraph(kmerGraph *kGraph, parameter *paramet
 		t1= clock();
 		kGraph->storagetime += t1 - t0;	
 	}
+
 }
 
 void distNodeGraph::cutoffGraph(MPIEnviroment *MPIcontrol, int threshold)
 {
-   	hash_map<unsigned long long, arc>::iterator it;
+   	hash_map<LKmer, arc>::iterator it;
 
-	hash_map<unsigned long long, arc> ret;
+	hash_map<LKmer, arc> ret;
 	ret.clear();
 	
 	int tot = kmolecules.size();
@@ -1116,19 +832,14 @@ void distNodeGraph::cutoffGraph(MPIEnviroment *MPIcontrol, int threshold)
 
 void distNodeGraph::buildKmoleculeGraph(MPIEnviroment *MPIcontrol, parameter *parameters)
 {
-   	hash_map<unsigned long long, arc>::iterator it;
+   	hash_map<LKmer, arc>::iterator it;
 	node newNode;
 	int kcount=0;
 	char kbuf[100];
 	for(it=kmolecules.begin(); it!=kmolecules.end(); it++)
 	{
 		kcount ++;
-/*		if(kcount%100000==0)
-		{
-			sprintf(kbuf, "[%d-%d] building %d NodeGraph",kcount, kmolecules.size(), nodes.size());
-			MPIcontrol->print(kbuf);
-		}	
-*/		newNode.init(it->first, it->second, parameters);
+		newNode.init(it->first, it->second, parameters);
 		nodes[it->first] = newNode;				
 	}	
 	kmolecules.clear();
@@ -1139,7 +850,7 @@ void distNodeGraph::buildKmoleculeGraph(MPIEnviroment *MPIcontrol, parameter *pa
 void distNodeGraph::printContigs(parameter *parameters, MPIEnviroment *MPIcontrol)
 {
     FILE *fp = fopen(parameters->contigsPath, "a");
-    hash_map<unsigned long long, node>::iterator it;
+    hash_map<LKmer, node>::iterator it;
 
     int tipsNum = 0;
     int contigNum = 0;	
@@ -1156,10 +867,10 @@ void distNodeGraph::printContigs(parameter *parameters, MPIEnviroment *MPIcontro
 			edgeCount++;
 			edgeLength = it->second.arcs[i].length();
 
-	    		if(it->second.arcs[i].length()<Contig_Length - parameters->hashLength)	continue;
-			
-    			string descriptor = kmerGraph::longLongToString(it->second.nodeID, parameters);
-    			if(i>3)	//negative side k-mers
+    		if(it->second.arcs[i].length()<Contig_Length - parameters->hashLength)	continue;
+		
+			string descriptor = kmerGraph::longLongToString(it->second.nodeID, parameters);
+			if(i>3)	//negative side k-mers
 			{
 				reverse(descriptor.begin(), descriptor.end());
 
@@ -1167,11 +878,11 @@ void distNodeGraph::printContigs(parameter *parameters, MPIEnviroment *MPIcontro
 					descriptor[j] = parameters->nucleotideReverse[descriptor[j]];
 			}
 
-    			descriptor += it->second.arcs[i];
+			descriptor += it->second.arcs[i];
 
-	    		int pos = descriptor.length()-parameters->hashLength;
+    		int pos = descriptor.length()-parameters->hashLength;
 
-	        	string retDescriptor = descriptor.substr(pos);
+        	string retDescriptor = descriptor.substr(pos);
 
 			string reverseStr = retDescriptor;
 			reverse(reverseStr.begin(), reverseStr.end());
@@ -1185,9 +896,9 @@ void distNodeGraph::printContigs(parameter *parameters, MPIEnviroment *MPIcontro
 			    	retDescriptor = reverseStr;
 			}
 			else   ret = 1;
-	        	assert(retDescriptor.length() == parameters->hashLength);
+        	assert(retDescriptor.length() == parameters->hashLength);
 
-	        	unsigned long long ID = kmerGraph::stringToLongLong(retDescriptor.c_str(),0,retDescriptor.length(),parameters);
+        	LKmer ID = kmerGraph::stringToLongLong(retDescriptor.c_str(),0,retDescriptor.length(),parameters);
 		
 			if(it->second.nodeID < ID)	continue;
 		
@@ -1204,27 +915,27 @@ void distNodeGraph::printContigs(parameter *parameters, MPIEnviroment *MPIcontro
 int distNodeGraph::recvProc(parameter *parameters, MPIEnviroment *MPIcontrol, int n, MPI_Request *data_reqs)
 {
 	
-	unsigned long long data[3];
-    	unsigned long long sdata[3];
-    	unsigned long long srcNodeID, dstNodeID, msgType;
-    	int length, srcKmerside;
-    	unsigned char curMultiplicity;
+	LKmer data[3];
+	LKmer sdata[3];
+	LKmer srcNodeID, dstNodeID;
+	unsigned long long msgType;
+	int length, srcKmerside;
+	unsigned char curMultiplicity;
 	
 	MPI_Request probeRequest;
 	MPI_Status recvStatus, otherStats;
-    	MPI_Status *data_status = new MPI_Status [MPIcontrol->nprocs];
-    	int flag=0, peepFlag=0;
+	MPI_Status *data_status = new MPI_Status [MPIcontrol->nprocs];
+	int flag=0, peepFlag=0;
 	int localFlag;
 
 	int ret = 0;
 
 
-    	clock_t clockStart, clockStop, workClockStart, workClockStop;
+	clock_t clockStart, clockStop, workClockStart, workClockStop;
 	clockStart = clock();
 
 	while(1)
 	{
-		//if n!=0,  recv or send action was finished, jump out from the while. otherwise, we need to process packets.
 		if(n!=0)	
 		{
 			MPI_Testall(n, data_reqs, &flag, data_status);
@@ -1234,53 +945,43 @@ int distNodeGraph::recvProc(parameter *parameters, MPIEnviroment *MPIcontrol, in
 				break;
 			}
 		}
-/*	
-		//we peep the packets before we continue. 
-		peepFlag = 0;
-		MPI_Iprobe(MPI_ANY_SOURCE, ServiceTunnel, MPI_COMM_WORLD, &peepFlag, &otherStats);
-
-		// no packets exist, and we Test our data_reqs again. 
-		if(peepFlag ==0)	{
-			continue;
-		}
-*/
 		
 		workClockStart = clock();	
 		//Hang up a Recv routine for any income packets to the ServiceTunnel. 	
 		if(recvFuncFlag == 0)
 		{	
-			MPI_Irecv(recvFuncData, 3, MPI_LONG_LONG_INT, MPI_ANY_SOURCE, ServiceTunnel, MPI_COMM_WORLD, &recvFuncRequest);
+			MPI_Irecv(recvFuncData, 3, MPIcontrol->MPI_LKmer, MPI_ANY_SOURCE, ServiceTunnel, MPI_COMM_WORLD, &recvFuncRequest);
 			recvFuncFlag = 1;
 		}
 
 		MPI_Test(&recvFuncRequest, &flag, &recvStatus);	
 		if(flag == 0)	continue;
 		
-//		MPI_Recv(data, 3, MPI_LONG_LONG_INT, MPI_ANY_SOURCE, ServiceTunnel, MPI_COMM_WORLD, &otherStats);
-		if(LDEBUG)	printf("proc:%d Recv Msg (%llu %llu %llu)\n", MPIcontrol->rank, recvFuncData[0], recvFuncData[1], recvFuncData[2]);      
-
 		//processing the packets acording to the protocol. 	
 		srcNodeID = recvFuncData[0];
 		dstNodeID = recvFuncData[1];
-		msgType   = recvFuncData[2]%10;
-		srcKmerside = recvFuncData[2]%100/10;   	//0 is negative side kmer , 1 is positive side kmer 	
-		curMultiplicity = (recvFuncData[2]%100000)/100;
-		length = recvFuncData[2]/100000;
-			
+		msgType   = recvFuncData[2].seq3%10;
+		srcKmerside = recvFuncData[2].seq3%100/10;   	//0 is negative side kmer , 1 is positive side kmer 	
+		curMultiplicity = (recvFuncData[2].seq3%100000)/100;
+		length = recvFuncData[2].seq3/100000;
+		
 		sdata[0]  = recvFuncData[1];
 		sdata[1]  = recvFuncData[0];
 
 		if(msgType != 9 && nodes.find(dstNodeID)==nodes.end())  
 		{
-	   		printf("proc:%d Error in find the Node (%llu) in the serviceProcess\n", MPIcontrol->rank, dstNodeID);
-	   		exit(0);
+			printf("proc: %d    Dst: %llu\n", MPIcontrol->rank, kmerGraph::getProcsID(dstNodeID, parameters->hashLength, MPIcontrol));
+
+			printf("%llu %llu %llu %llu\n", dstNodeID.seq3,dstNodeID.seq2,dstNodeID.seq1,dstNodeID.seq0);
+			printf("%s\n", kmerGraph::longLongToString(dstNodeID, parameters).c_str());
+			printf("node error...: %llu\n", msgType);
+	   		// exit(0);
 		}
 			
-		unsigned long long  SendProc = getProcsID(srcNodeID, parameters->hashLength, MPIcontrol);
+		unsigned long long SendProc = getProcsID(srcNodeID, parameters->hashLength, MPIcontrol);
 
 		if(msgType == 9)       //Last Msg Was Received
 		{
-			if(LDEBUG)	printf("proc:%d stoped\n", MPIcontrol->rank);
 			ret = 1;  break;	
 		}
 		else if(msgType == 0)   //Lock Msg Was Received
@@ -1290,15 +991,13 @@ int distNodeGraph::recvProc(parameter *parameters, MPIEnviroment *MPIcontrol, in
 	   		{	
 				//Send back a LockSuccess msg to srcNodeID's ComputingThread through ComputingTunnel
 				sdata[2] = 1;
-				MPI_Send(sdata, 3, MPI_LONG_LONG_INT, SendProc, ComputingTunnel, MPI_COMM_WORLD);
-				if(LDEBUG) printf("proc:%d Node(%llu)_%d Sending LockSuccessMsg to -[%llu](%llu)-\n",MPIcontrol->rank, dstNodeID, nodes[dstNodeID].deleteFlag, SendProc, srcNodeID);
+				MPI_Send(sdata, 3, MPIcontrol->MPI_LKmer, SendProc, ComputingTunnel, MPI_COMM_WORLD);
 	   		}
 	   		else 	//This node is not on a link, or has been locked by other process.
 	   		{
 				//Send back a LockFailed msg to srcNodeID's ComputingThread through ComputingTunnel
 				sdata[2] = 2;
-				MPI_Send(sdata, 3, MPI_LONG_LONG_INT, SendProc, ComputingTunnel, MPI_COMM_WORLD);
-				if(LDEBUG) printf("proc:%d Node(%llu)_%d Sending LockFailedMsg to -[%llu](%llu)-\n",MPIcontrol->rank, dstNodeID,nodes[dstNodeID].deleteFlag, SendProc, srcNodeID);
+				MPI_Send(sdata, 3, MPIcontrol->MPI_LKmer, SendProc, ComputingTunnel, MPI_COMM_WORLD);
 			}
 	   	}
 		else if(msgType == 3)
@@ -1325,26 +1024,18 @@ int distNodeGraph::recvProc(parameter *parameters, MPIEnviroment *MPIcontrol, in
 	   			}
 				strBuf[length] = 0;
 	   			str = string(strBuf);
-	   			if(LDEBUG) printf("proc:%d Node(%llu) Recv Edge(%s) from -[%lld](%llu)-\n",MPIcontrol->rank, dstNodeID, strBuf, SendProc, srcNodeID);
 			}
 
 		    	//union the Edge here
 		    	int index = nodes[dstNodeID].getSrcNodeEdge(srcNodeID, srcKmerside, string(""), 0, 2, parameters);
 
-/*			if(dstNodeID == 3906247590979 && srcNodeID == 3560456582410)	{
-				printNode(srcNodeID);
-				printNode(dstNodeID);
-				printf("srcNodeID=%llu srcKmerside=%d index=%d \n",  srcNodeID, srcKmerside, index);
-			}
-*/	    		if(index != -1)	
+	    		if(index != -1)	
 	    		{
 				if(length!=0)
 				{
 					int preMulti = nodes[dstNodeID].multiplicity[(index>>2)] * nodes[dstNodeID].arcs[(index>>2)].length() + curMultiplicity * str.length();
 	    				nodes[dstNodeID].arcs[(index>>2)] += str;
 					nodes[dstNodeID].multiplicity[(index>>2)] = (unsigned char) (preMulti/nodes[dstNodeID].arcs[(index>>2)].length());
-					
-	    				//if(LDEBUG) printf("proc:%d Node(%llu) update Edge(%d) to be %s\n",MPIcontrol->rank, dstNodeID, index, nodes[dstNodeID].arcs[index]);
 				}
 				else	
 				{
@@ -1354,7 +1045,7 @@ int distNodeGraph::recvProc(parameter *parameters, MPIEnviroment *MPIcontrol, in
 	    		}
 	    		else
 	    		{
-				printf("%ld %ld Edge was send to the wrong node, please Check\n", srcNodeID, dstNodeID);
+				printf("%ld %ld Edge was send to the wrong node, please Check\n", srcNodeID.seq3, dstNodeID.seq3);
 				printNode(srcNodeID, stdout);
 				printNode(dstNodeID, stdout);
 				printf("---------------------\n");
@@ -1375,7 +1066,7 @@ int distNodeGraph::recvProc(parameter *parameters, MPIEnviroment *MPIcontrol, in
 		}
 	
 		//after finish previous packet, hang up a new Recv routine. 	
-		MPI_Irecv(recvFuncData, 3, MPI_LONG_LONG_INT, MPI_ANY_SOURCE, ServiceTunnel, MPI_COMM_WORLD, &recvFuncRequest);
+		MPI_Irecv(recvFuncData, 3, MPIcontrol->MPI_LKmer, MPI_ANY_SOURCE, ServiceTunnel, MPI_COMM_WORLD, &recvFuncRequest);
 
 		workClockStop  = clock();
 		totalWorkTime = totalWorkTime + (workClockStop-workClockStart);	
@@ -1391,21 +1082,21 @@ int distNodeGraph::recvProc(parameter *parameters, MPIEnviroment *MPIcontrol, in
 
 void distNodeGraph::simplifyDistNodeGraph(parameter *parameters, MPIEnviroment *MPIcontrol)
 {
-    	unsigned long long leftNodeID, rightNodeID;
+    	LKmer leftNodeID, rightNodeID;
     	int leftRet, rightRet; 
     	unsigned long long leftProc, rightProc, myProc;
     	int leftLock, rightLock, commTag,lockCount=0, curLockCount=0;
     	int leftLockResult, rightLockResult;
     	unsigned long long msgType = 0;
-    	unsigned long long data[5], tmpdata[5], rdata[3];
-    	hash_map<unsigned long long, node>::iterator it;
-	MPI_Request *data_reqs = new MPI_Request [4]; 
+    	LKmer data[5], tmpdata[5], rdata[3];
+    	hash_map<LKmer, node>::iterator it;
+		MPI_Request *data_reqs = new MPI_Request [4]; 
 
     	if(!DEBUG)	printf("proc:%d Sending Thread Start\n",MPIcontrol->rank);
 
     	int node_num = nodes.size();
     	int kk = 1;
-	int CircleNum = 0;
+		int CircleNum = 0;
     	for(it=nodes.begin(); it!=nodes.end();it++)
     	{
 		if(kk%100000==0)
@@ -1416,12 +1107,10 @@ void distNodeGraph::simplifyDistNodeGraph(parameter *parameters, MPIEnviroment *
 		//avoid all deleted nodes
 		if(it->second.deleteFlag==0)  continue;	
 		
-		if(LDEBUG)	printf("|proc:%d processing %llu(%s)\n", MPIcontrol->rank, it->second.nodeID, kmerGraph::longLongToString(it->second.nodeID, parameters).c_str());
 		
 		//try to lock this node 
 		if(pthread_mutex_trylock(&it->second.lockFlag) != 0)
 		{
-		    	if(LDEBUG) printf("*proc:%d Node(%llu)(%s) has locked by other process\n", MPIcontrol->rank, it->second.nodeID, kmerGraph::longLongToString(it->second.nodeID, parameters).c_str());
 		    	lockCount++; 
 	    		continue;	
 		}
@@ -1429,7 +1118,6 @@ void distNodeGraph::simplifyDistNodeGraph(parameter *parameters, MPIEnviroment *
 		leftRet  = it->second.getLeftNodeID(leftNodeID, parameters);
 		rightRet = it->second.getRightNodeID(rightNodeID,parameters);
 
-		if(LDEBUG)	printf("|proc:%d %llu leftNode=%llu(%d) rightNode=%llu(%d)\n", MPIcontrol->rank, it->second.nodeID, leftNodeID, leftRet, rightNodeID, rightRet);
 		//	this node is not a semi-extended k-molecule 
 		if( abs(leftRet) != 1 || abs(rightRet) != 1)
 		{
@@ -1445,15 +1133,11 @@ void distNodeGraph::simplifyDistNodeGraph(parameter *parameters, MPIEnviroment *
 		data[0] = it->second.nodeID;
 		data[1] = leftNodeID;
 		data[2] = 1*10;	//positive side
-		
-		MPI_Isend(data, 3, MPI_LONG_LONG_INT, leftProc, ServiceTunnel, MPI_COMM_WORLD, &data_reqs[0]);
+		MPI_Isend(data, 3, MPIcontrol->MPI_LKmer, leftProc, ServiceTunnel, MPI_COMM_WORLD, &data_reqs[0]);
 		//Recv LockReply from leftNodeID,
-		MPI_Irecv(rdata, 3, MPI_LONG_LONG_INT, leftProc, ComputingTunnel, MPI_COMM_WORLD, &data_reqs[1]);
+		MPI_Irecv(rdata, 3, MPIcontrol->MPI_LKmer, leftProc, ComputingTunnel, MPI_COMM_WORLD, &data_reqs[1]);
 		recvProc(parameters, MPIcontrol, 2, data_reqs);
-
-		leftLockResult = rdata[2];	
-		if(LDEBUG)	printf("|proc:%d Node(%llu)(%s) Sending LockMsg to -[%llu](%llu)(%s)-\n",MPIcontrol->rank, it->second.nodeID,kmerGraph::longLongToString(it->second.nodeID, parameters).c_str(), leftProc, leftNodeID, kmerGraph::longLongToString(leftNodeID, parameters).c_str());
-		if(LDEBUG)	printf("|proc:%d Node(%llu)(%s) Recv LockReply from -[%llu](%llu)(%s) Ret=%d-\n",MPIcontrol->rank, it->second.nodeID, kmerGraph::longLongToString(it->second.nodeID, parameters).c_str(), leftProc, leftNodeID, kmerGraph::longLongToString(leftNodeID, parameters).c_str(), leftLockResult);
+		leftLockResult = rdata[2].seq3;
 		fflush(stdout);
 		
 		//Processing RightNode, Send Lockmsg to rightNodeID's serviceThread  
@@ -1461,29 +1145,27 @@ void distNodeGraph::simplifyDistNodeGraph(parameter *parameters, MPIEnviroment *
 		{
 			data[1] = rightNodeID;
 			data[2] = 0*10;	//negative side
-			MPI_Isend(data, 3, MPI_LONG_LONG_INT, rightProc, ServiceTunnel, MPI_COMM_WORLD, &data_reqs[0]);
+			MPI_Isend(data, 3, MPIcontrol->MPI_LKmer, rightProc, ServiceTunnel, MPI_COMM_WORLD, &data_reqs[0]);
 
 			//Recv LockReply from rightNodeID
-			MPI_Irecv(rdata, 3, MPI_LONG_LONG_INT, rightProc, ComputingTunnel, MPI_COMM_WORLD, &data_reqs[1]);
+			MPI_Irecv(rdata, 3, MPIcontrol->MPI_LKmer, rightProc, ComputingTunnel, MPI_COMM_WORLD, &data_reqs[1]);
 		
-			if(LDEBUG) printf("|proc:%d Node(%llu)(%s) Sending LockMsg to -[%llu](%llu)(%s)-\n",MPIcontrol->rank, it->second.nodeID, kmerGraph::longLongToString(it->second.nodeID,parameters).c_str(), rightProc, rightNodeID, kmerGraph::longLongToString(rightNodeID, parameters).c_str());
-			if(LDEBUG) printf("|proc:%d Node(%llu)(%s) Recv LockReply from -[%llu](%llu)(%s) Ret=%d-\n",MPIcontrol->rank, it->second.nodeID, kmerGraph::longLongToString(it->second.nodeID, parameters).c_str(), rightProc, rightNodeID, kmerGraph::longLongToString(rightNodeID, parameters).c_str(), rightLockResult);
 			fflush(stdout);
 			recvProc(parameters, MPIcontrol, 2, data_reqs);
-			rightLockResult = rdata[2];
+			rightLockResult = rdata[2].seq3;
 		}
 		else	{ rightLockResult = leftLockResult;	CircleNum++; }
-
+		
 		if(leftLockResult==1 && rightLockResult==1)	
 		{
 	   	 	// Lock Success,  do some thing here.
-		    	data[0] = it->second.nodeID;
+		    data[0] = it->second.nodeID;
 
-		    	//Send leftNodeID with rightEdge
+		    //Send leftNodeID with rightEdge
 			unsigned char curMultiplicity, curMultiplicity2;
-		    	char *pstr = const_cast<char *> (it->second.getLeftEdge(curMultiplicity));
+		    char *pstr = const_cast<char *> (it->second.getLeftEdge(curMultiplicity));
 	   	 	data[1] = rightNodeID;
-	    		data[2] = 4 + 0*10 + 100*curMultiplicity + 100000*(unsigned long long)strlen(pstr);	//negative side kmer
+	    	data[2] = 4 + 0*10 + 100*curMultiplicity + 100000*(unsigned long long)strlen(pstr);	//negative side kmer
 
 			/*-------------------------------------------------------------------
 			data[2] protocol formart: 
@@ -1494,61 +1176,44 @@ void distNodeGraph::simplifyDistNodeGraph(parameter *parameters, MPIEnviroment *
           		6+:    length of the edge
 		  	-------------------------------------------------------------------*/
 		
-	    		MPI_Isend(data, 3, MPI_LONG_LONG_INT, rightProc, ServiceTunnel, MPI_COMM_WORLD, &data_reqs[0]);
-	    		MPI_Isend(pstr, data[2]/100000, MPI_CHAR, rightProc, DataTunnel, MPI_COMM_WORLD, &data_reqs[1]);
+	    	MPI_Isend(data, 3, MPIcontrol->MPI_LKmer, rightProc, ServiceTunnel, MPI_COMM_WORLD, &data_reqs[0]);
+	    	MPI_Isend(pstr, data[2].seq3/100000, MPI_CHAR, rightProc, DataTunnel, MPI_COMM_WORLD, &data_reqs[1]);
 	    
-	    	if(LDEBUG)       printf("|proc:%d Node(%llu)(%s) Send EdgeLength=%llu to -[%llu](%llu)(%s)-\n",MPIcontrol->rank, it->second.nodeID, kmerGraph::longLongToString(it->second.nodeID, parameters).c_str(), data[2]/100000, rightProc, rightNodeID, kmerGraph::longLongToString(rightNodeID, parameters).c_str());
-	    	if(LDEBUG)       printf("|proc:%d Node(%llu)(%s) Send EdgeData(%s) to -[%llu](%llu)(%s)-\n",MPIcontrol->rank, it->second.nodeID, kmerGraph::longLongToString(it->second.nodeID, parameters).c_str(), pstr, rightProc, rightNodeID, kmerGraph::longLongToString(rightNodeID, parameters).c_str());
 			fflush(stdout);
-	//		recvProc(parameters, MPIcontrol, 2, data_reqs);
 		
-		//Send rightNodeID with leftEdge, add five s before data	
+			//Send rightNodeID with leftEdge, add five s before data	
 	    	char *pstr2 = const_cast<char *> (it->second.getRightEdge(curMultiplicity2));
-		tmpdata[0] = it->second.nodeID;
+			tmpdata[0] = it->second.nodeID;
 	    	tmpdata[1] = leftNodeID;
 	    	tmpdata[2] = 4 + 1*10 + 100*curMultiplicity2 + 100000*(unsigned long long)strlen(pstr2);	//positive side kmer
-	    	MPI_Isend(tmpdata,  3, MPI_LONG_LONG_INT,     leftProc, ServiceTunnel, MPI_COMM_WORLD, &data_reqs[2]);
-	    	MPI_Isend(pstr2, tmpdata[2]/100000, MPI_CHAR, leftProc, DataTunnel,    MPI_COMM_WORLD, &data_reqs[3]);	
-		recvProc(parameters, MPIcontrol, 4, data_reqs);
-	    /*	
-	    	char *pstr2 = const_cast<char *> (it->second.getRightEdge(curMultiplicity));
-		sdata[0] = it->second.nodeID;
-	    	sdata[1] = leftNodeID;
-	    	sdata[2] = 4 + 1*10 + 100*curMultiplicity + 100000*(unsigned long long)strlen(pstr);	//positive side kmer
-	    	MPI_Isend(sdata, 3, MPI_LONG_LONG_INT, leftProc, ServiceTunnel, MPI_COMM_WORLD, &data_reqs[0]);
-	    	MPI_Isend(pstr2, sdata[2]/100000, MPI_CHAR,    leftProc, DataTunnel, MPI_COMM_WORLD, &data_reqs[1]);	
-		recvProc(parameters, MPIcontrol, 2, data_reqs);
-	    */	
-/*		if(LDEBUG)  printf("|proc:%d Node(%llu)(%s) Send EdgeLength=%llu to -[%llu](%llu)(%s)-\n",MPIcontrol->rank, it->second.nodeID, kmerGraph::longLongToString(it->second.nodeID, parameters).c_str(), data[2]/100000, leftProc, leftNodeID, kmerGraph::longLongToString(leftNodeID, parameters).c_str());
-	    	if(LDEBUG) printf("|proc:%d Node(%llu)(%s) Send EdgeData(%s) to -[%llu](%llu)(%s)-\n",MPIcontrol->rank, it->second.nodeID, kmerGraph::longLongToString(it->second.nodeID, parameters).c_str(), pstr, leftProc, leftNodeID, kmerGraph::longLongToString(leftNodeID, parameters).c_str());
-*/	    
-		    	//Set DeleteFlag for this node
+	    	MPI_Isend(tmpdata,  3, MPIcontrol->MPI_LKmer,     leftProc, ServiceTunnel, MPI_COMM_WORLD, &data_reqs[2]);
+	    	MPI_Isend(pstr2, tmpdata[2].seq3/100000, MPI_CHAR, leftProc, DataTunnel,    MPI_COMM_WORLD, &data_reqs[3]);	
+			recvProc(parameters, MPIcontrol, 4, data_reqs);	    
+		    //Set DeleteFlag for this node
 			it->second.deleteFlag = 0; 
 		}
 		else if(leftLockResult==1 || rightLockResult==1)
 		{
-	    		data[0] = it->second.nodeID;
-	    		data[2] = 3;
-	    		// Lock Failed,   do some thing here.
-	    		if(leftLockResult == 1)
-	    		{	
-			//Send unlock msg to leftNodeID's serviceThread
-			data[1] = leftNodeID;
-			MPI_Isend(data, 3, MPI_LONG_LONG_INT, leftProc, ServiceTunnel, MPI_COMM_WORLD, &data_reqs[0]);
-			recvProc(parameters, MPIcontrol, 1, data_reqs);
+	    	data[0] = it->second.nodeID;
+	    	data[2] = 3;
+	    	// Lock Failed,   do some thing here.
+	    	if(leftLockResult == 1)
+	    	{	
+				//Send unlock msg to leftNodeID's serviceThread
+				data[1] = leftNodeID;
+				MPI_Isend(data, 3, MPIcontrol->MPI_LKmer, leftProc, ServiceTunnel, MPI_COMM_WORLD, &data_reqs[0]);
+				recvProc(parameters, MPIcontrol, 1, data_reqs);
 	
-			if(LDEBUG)       printf("|proc:%d Node(%llu)(%s) Send UnLock to -[%llu](%llu)(%s)-\n",MPIcontrol->rank, it->second.nodeID, kmerGraph::longLongToString(it->second.nodeID,parameters).c_str(), leftProc, leftNodeID, kmerGraph::longLongToString(leftNodeID, parameters).c_str());
 			}	
-	    		else if(rightLockResult == 1)
-	    		{
-			//Send unlock msg to rightNodeID's serviceThread
-			data[1] = rightNodeID;
-			MPI_Isend(data, 3, MPI_LONG_LONG_INT, rightProc, ServiceTunnel, MPI_COMM_WORLD, &data_reqs[0]);
-			recvProc(parameters, MPIcontrol, 1, data_reqs);
-
-			if(LDEBUG)       printf("|proc:%d Node(%llu)(%s) Send UnLock to -[%llu](%llu)(%s)-\n",MPIcontrol->rank, it->second.nodeID, kmerGraph::longLongToString(it->second.nodeID, parameters).c_str(), rightProc, rightNodeID, kmerGraph::longLongToString(rightNodeID, parameters).c_str());
+	    	else if(rightLockResult == 1)
+	    	{
+				//Send unlock msg to rightNodeID's serviceThread
+				data[1] = rightNodeID;
+				MPI_Isend(data, 3, MPIcontrol->MPI_LKmer, rightProc, ServiceTunnel, MPI_COMM_WORLD, &data_reqs[0]);
+				recvProc(parameters, MPIcontrol, 1, data_reqs);
 			}
 		}
+
 		pthread_mutex_unlock(&it->second.lockFlag);
     	}
    
@@ -1576,10 +1241,10 @@ void distNodeGraph::graphStatistics(parameter *parameters, MPIEnviroment *MPIcon
 
 	long long int recvNodeNum, recvEdgeNum, recvEdgeAvgLength, recvTipsNum, recvBubbleNum;
 
-    	hash_map<unsigned long long, node>::iterator it;	
+    	hash_map<LKmer, node>::iterator it;	
     	for(it=nodes.begin(); it!=nodes.end();it++)
     	{
-   		unsigned long long srcNodeID = it->second.nodeID;
+   		LKmer srcNodeID = it->second.nodeID;
 		if(it->second.deleteFlag == 0) continue;
 		nodeNum++;
 		
@@ -1626,469 +1291,11 @@ void distNodeGraph::graphStatistics(parameter *parameters, MPIEnviroment *MPIcon
 	}
 }
 
-void distNodeGraph::tipsRemoval(parameter *parameters, MPIEnviroment *MPIcontrol)
-{
-    unsigned long long leftNodeID, rightNodeID;
-    int leftRet, rightRet; 
-    unsigned long long leftProc, rightProc, myProc;
-    int leftLock, rightLock, commTag,lockCount=0, curLockCount=0;
-    int leftLockResult, rightLockResult;
-    unsigned long long msgType = 0;
-    unsigned long long data[5], rdata[3];
-    hash_map<unsigned long long, node>::iterator it;
-    MPI_Status stats;
-
-	MPI_Request send_reqs, recv_reqs;
-
-	MPI_Request *data_reqs   = new MPI_Request [MPIcontrol->nprocs];
-	MPI_Status  *data_status = new MPI_Status  [MPIcontrol->nprocs];
-	char *recvFinishTag      = new char        [MPIcontrol->nprocs];
-	
-	assert(recvFinishTag!=NULL);
-	assert(data_reqs!=NULL);
-	assert(data_status!=NULL);
-
-	int flag;
-	
-    if(!DEBUG)	printf("proc:%d Sending Thread Start\n",MPIcontrol->rank);
-
-    int node_num = nodes.size();
-    int kk = 0;
-    int CircleNum = 0;
-    int tipsNum = 0;
-    for(it=nodes.begin(); it!=nodes.end();it++)
-    {
-//	if(kk%100000==0)
-    //		printf("proc:%d: processed %d (tot: %d)\n", MPIcontrol->rank, kk, node_num);
-
-	//avoid all deleted nodes
-	if(it->second.deleteFlag==0)  continue;	
-	kk++;
-	
-	if(LDEBUG)	printf("|proc:%d processing %llu(%s)\n", MPIcontrol->rank, it->second.nodeID, kmerGraph::longLongToString(it->second.nodeID, parameters).c_str());
-		
-	
-	//try to lock this node 
-	if(pthread_mutex_trylock(&it->second.lockFlag) != 0)
-	{
-		if(LDEBUG) printf("*proc:%d Node(%llu)(%s) has locked by other process\n", MPIcontrol->rank, it->second.nodeID, kmerGraph::longLongToString(it->second.nodeID, parameters).c_str());
-	    	lockCount++; 
-    		continue;	
-	}
-	
-	unsigned long long srcNodeID = it->second.nodeID;
-	int localEdgeNum=0;	
-	int oneEdgeLength=0;
-	for(int k=0;k<8;k++)
-	{
-		if(nodes[srcNodeID].arcs[k].length()==0)	continue;
-
-		localEdgeNum++;
-		oneEdgeLength = nodes[srcNodeID].arcs[k].length();
-	}
-	if(localEdgeNum!=1 || oneEdgeLength > parameters->hashLength-1)	 
-	{	
-		pthread_mutex_unlock(&it->second.lockFlag);
-		continue;
-	}
-	tipsNum++;	
-
-	leftRet  = it->second.getLeftNodeID(leftNodeID, parameters);
-	rightRet = it->second.getRightNodeID(rightNodeID,parameters);
-
-//	printf("%llu %d %d\n", it->second.nodeID, leftRet, rightRet);
-	//	this node is not a semi-extended k-molecule
-		 
-//	unsigned char curMultiplicity=0;
-//    	char *pstr = const_cast<char *> (it->second.getLeftEdge(curMultiplicity));
-		
-	if(abs(leftRet) + abs(rightRet) != 1)
-	{
-		pthread_mutex_unlock(&it->second.lockFlag);
-		continue;
-	}
-
-	if(abs(leftRet)==1)
-	{
-		leftProc    = getProcsID(leftNodeID, parameters->hashLength, MPIcontrol);
-		myProc      = getProcsID(it->second.nodeID, parameters->hashLength, MPIcontrol);
-
-		//Processing LeftNode First, Send Lockmsg to leftNodeID's serviceThread 
-		data[0] = it->second.nodeID;
-		data[1] = leftNodeID;
-		data[2] = 1*10;	//positive side
-		
-		MPI_Isend(data, 3, MPI_LONG_LONG_INT, leftProc, ServiceTunnel, MPI_COMM_WORLD, &data_reqs[0]);
-		//Recv LockReply from leftNodeID,
-		MPI_Irecv(rdata, 3, MPI_LONG_LONG_INT, leftProc, ComputingTunnel, MPI_COMM_WORLD, &data_reqs[1]);
-		recvProc(parameters, MPIcontrol, 2, data_reqs);
-	
-		leftLockResult = rdata[2];	
-		if(LDEBUG)	printf("|proc:%d Node(%llu)(%s) Sending LockMsg to -[%llu](%llu)(%s)-\n",MPIcontrol->rank, it->second.nodeID,kmerGraph::longLongToString(it->second.nodeID, parameters).c_str(), leftProc, leftNodeID, kmerGraph::longLongToString(leftNodeID, parameters).c_str());
-		if(LDEBUG)	printf("|proc:%d Node(%llu)(%s) Recv LockReply from -[%llu](%llu)(%s) Ret=%d-\n",MPIcontrol->rank, it->second.nodeID, kmerGraph::longLongToString(it->second.nodeID, parameters).c_str(), leftProc, leftNodeID, kmerGraph::longLongToString(leftNodeID, parameters).c_str(), leftLockResult);
-		fflush(stdout);
-	}
-	else
-	{
-		rightProc   = getProcsID(rightNodeID, parameters->hashLength, MPIcontrol);
-		myProc      = getProcsID(it->second.nodeID, parameters->hashLength, MPIcontrol);
-		
-		//Processing RightNode, Send Lockmsg to rightNodeID's serviceThread  
-		data[0] = it->second.nodeID;
-		data[1] = rightNodeID;
-		data[2] = 0*10;	//negative side
-		MPI_Isend(data, 3, MPI_LONG_LONG_INT, rightProc, ServiceTunnel, MPI_COMM_WORLD, &data_reqs[0]);
-
-		//Recv LockReply from rightNodeID
-		MPI_Irecv(rdata, 3, MPI_LONG_LONG_INT, rightProc, ComputingTunnel, MPI_COMM_WORLD, &data_reqs[1]);
-		recvProc(parameters, MPIcontrol, 2, data_reqs);
-
-		rightLockResult = rdata[2];
-		if(LDEBUG) printf("|proc:%d Node(%llu)(%s) Sending LockMsg to -[%llu](%llu)(%s)-\n",MPIcontrol->rank, it->second.nodeID, kmerGraph::longLongToString(it->second.nodeID,parameters).c_str(), rightProc, rightNodeID, kmerGraph::longLongToString(rightNodeID, parameters).c_str());
-		if(LDEBUG) printf("|proc:%d Node(%llu)(%s) Recv LockReply from -[%llu](%llu)(%s) Ret=%d-\n",MPIcontrol->rank, it->second.nodeID, kmerGraph::longLongToString(it->second.nodeID, parameters).c_str(), rightProc, rightNodeID, kmerGraph::longLongToString(rightNodeID, parameters).c_str(), rightLockResult);
-		fflush(stdout);
-	}
-
-	if(abs(leftRet)==1 && leftLockResult==1)
-	{
-   		// Lock Success,  do some thing here.
-    		data[0] = it->second.nodeID;
-    		data[1] = leftNodeID;
-    		data[2] = 4 + 1*10 + 100*0 + 100000*0;	//negative side kmer
-			
-	    	MPI_Isend(data, 3, MPI_LONG_LONG_INT, leftProc, ServiceTunnel, MPI_COMM_WORLD, &data_reqs[0]);
-		recvProc(parameters, MPIcontrol, 1, data_reqs);
-	    
-	    	if(LDEBUG)       printf("|proc:%d Node(%llu)(%s) Send EdgeLength=%llu to -[%llu](%llu)(%s)-\n",MPIcontrol->rank, it->second.nodeID, kmerGraph::longLongToString(it->second.nodeID, parameters).c_str(), data[2]/100000, rightProc, rightNodeID, kmerGraph::longLongToString(rightNodeID, parameters).c_str());
-		fflush(stdout);
-		
-		it->second.deleteFlag = 0; 
-	}
-	else if(abs(rightRet)==1 && rightLockResult==1)
-	{
-   		// Lock Success,  do some thing here.
-    		data[0] = it->second.nodeID;
-    		data[1] = rightNodeID;
-    		data[2] = 4 + 0*10 + 100*0 + 100000*0;	//positive side kmer
-    		MPI_Isend(data, 3, MPI_LONG_LONG_INT, rightProc, ServiceTunnel, MPI_COMM_WORLD, &data_reqs[0]);
-		recvProc(parameters, MPIcontrol, 1, data_reqs);
-
-		if(LDEBUG)		printf("|proc:%d Node(%llu)(%s) Send EdgeLength=%llu to -[%llu](%llu)(%s)-\n",MPIcontrol->rank, it->second.nodeID, kmerGraph::longLongToString(it->second.nodeID, parameters).c_str(), data[2]/100000, leftProc, leftNodeID, kmerGraph::longLongToString(leftNodeID, parameters).c_str());
-    		//Set DeleteFlag for this node
-		it->second.deleteFlag = 0; 
-	}
-
-	pthread_mutex_unlock(&it->second.lockFlag);
-    }
-   
-	printf("proc%d: -----------------finshed\n", MPIcontrol->rank);
-	fflush(stdout);
-
-    	char sendFinishTag = 1;
-	MPI_Isend(&sendFinishTag, 1, MPI_CHAR, 0, EndTunnel, MPI_COMM_WORLD, &send_reqs);
-	
-    	if(MPIcontrol->rank == 0)  
-	{
-		for(int i=0; i<MPIcontrol->nprocs; i++)	recvFinishTag[i] = 0;
-
-		for(int i=0;i<MPIcontrol->nprocs;i++)
-		{
-			MPI_Irecv(&recvFinishTag[i], 1, MPI_CHAR, i, EndTunnel, MPI_COMM_WORLD, &data_reqs[i]);
-			printf("proc:%d recving FinishTag from %d\n", MPIcontrol->rank, i);
-			fflush(stdout);
-		}
-	
-		recvProc(parameters, MPIcontrol, MPIcontrol->nprocs, data_reqs);	
-
-		int sum = 0;
-		for(int i=0; i<MPIcontrol->nprocs; i++)
-	    	sum += recvFinishTag[i];
-
-		printf("---------------------------%d\n", sum);
-		fflush(stdout);
-		if(sum != MPIcontrol->nprocs)
-		{
-	    	printf("Gather Tags Error\n");
-	    	exit(0);
-		}
-	}
-
-	recvProc(parameters, MPIcontrol, 1, &send_reqs);
-
-	//	printf("proc:%d sending FinishTag \n", MPIcontrol->rank);
-	//	fflush(stdout);
-
-//  MPI_Gather(&sendFinishTag, 1, MPI_CHAR, recvFinishTag, 1, MPI_CHAR, root, MPI_COMM_WORLD);
-   
-   	unsigned long long endData[5000][3];	
-	if(MPIcontrol->rank==0)
-   	 {
-		for(int i=0;i<MPIcontrol->nprocs;i++)
-		{
-			endData[i][0] = 0;
-	    	endData[i][1] = i;
-			endData[i][2] = 9;
-	    	MPI_Isend(endData[i], 3, MPI_LONG_LONG_INT, i, ServiceTunnel, MPI_COMM_WORLD, &data_reqs[i]);
-//			printf("proc:%d Sending (%llu %llu %llu)\n", MPIcontrol->rank, endData[i][0], endData[i][1], endData[i][2]);
-//			printf("proc:%d sending killTag to %d\n", MPIcontrol->rank, i);
-//			fflush(stdout);
-		}
-    	}
-
-	while(recvProc(parameters, MPIcontrol, 0, data_reqs) == 0);	
-
-	if(MPIcontrol->rank==0)
-	{	
-		MPI_Waitall(MPIcontrol->nprocs, data_reqs, data_status);
-	}
-
-	delete data_reqs;
-	delete data_status;
-	data_reqs = NULL;
-	data_status = NULL;
-	
-	printf("*proc:%d  (%d) Node has locked by other process\n", MPIcontrol->rank, lockCount);
-	printf("|proc:%d CircleNum = %d\n", MPIcontrol->rank, CircleNum);
-}
-
-void distNodeGraph::bubbleRemoval(parameter *parameters, MPIEnviroment *MPIcontrol)
-{
-    unsigned long long leftNodeID, rightNodeID;
-    int leftRet, rightRet; 
-    unsigned long long leftProc, rightProc, myProc;
-    int leftLock, rightLock, commTag,lockCount=0, curLockCount=0;
-    int leftLockResult, rightLockResult;
-    unsigned long long msgType = 0;
-    unsigned long long data[5], rdata[3];
-    hash_map<unsigned long long, node>::iterator it;
-    MPI_Status stats;
-
-	MPI_Request send_reqs, recv_reqs;
-
-	MPI_Request *data_reqs   = new MPI_Request [MPIcontrol->nprocs];
-	MPI_Status  *data_status = new MPI_Status  [MPIcontrol->nprocs];
-	char *recvFinishTag      = new char        [MPIcontrol->nprocs];
-	
-	assert(recvFinishTag!=NULL);
-	assert(data_reqs!=NULL);
-	assert(data_status!=NULL);
-
-	int flag;
-	
-    if(!DEBUG)	printf("proc:%d Sending Thread Start\n",MPIcontrol->rank);
-
-    int node_num = nodes.size();
-    int kk = 0;
-    int CircleNum = 0;
-    int bubbleNum = 0;
-    for(it=nodes.begin(); it!=nodes.end();it++)
-    {
-//	if(kk%100000==0)
-//	printf("proc:%d: processed %d (tot: %d)\n", MPIcontrol->rank, kk, node_num);
-
-	//avoid all deleted nodes
-	if(it->second.deleteFlag==0)  continue;	
-	kk++;
-	
-	if(LDEBUG)	printf("|proc:%d processing %llu(%s)\n", MPIcontrol->rank, it->second.nodeID, kmerGraph::longLongToString(it->second.nodeID, parameters).c_str());
-	
-	//try to lock this node 
-	if(pthread_mutex_trylock(&it->second.lockFlag) != 0)
-	{
-		if(LDEBUG) printf("*proc:%d Node(%llu)(%s) has locked by other process\n", MPIcontrol->rank, it->second.nodeID, kmerGraph::longLongToString(it->second.nodeID, parameters).c_str());
-	    	lockCount++; 
-    		continue;	
-	}
-	
-	unsigned long long srcNodeID = it->second.nodeID;
-	int maxIndex=0,  maxMultiplicity = -1;
-	int minIndex=0,  minMultiplicity = 1000000;
-	for(int k=0;k<8;k++)
-	{
-		if(nodes[srcNodeID].arcs[k].length()==0)	continue;
-
-		if(nodes[srcNodeID].multiplicity[k] > maxMultiplicity)	maxIndex=k, maxMultiplicity = nodes[srcNodeID].multiplicity[k];
-		if(nodes[srcNodeID].multiplicity[k] < minMultiplicity)	minIndex=k, minMultiplicity = nodes[srcNodeID].multiplicity[k];
-	}
-	if(minMultiplicity < 0.2 * maxMultiplicity && nodes[srcNodeID].arcs[minIndex].length() < 2 * parameters->hashLength)	
-	{	// this node has a bubble
-		bubbleNum ++;		
-
-		if(minIndex<4)	
-		{
-			rightRet = it->second.getNodeID(minIndex, rightNodeID, parameters);
-			leftRet = 0;	leftNodeID = 0;			
-		}
-		else
-		{
-			leftRet = it->second.getNodeID(minIndex, leftNodeID, parameters);
-			rightRet = 0;  rightNodeID = 0;
-		}			
-	}
-	else
-	{	// this node has no bubble.
-		pthread_mutex_unlock(&it->second.lockFlag);
-		continue;
-	}	
-
-	//leftRet  = it->second.getLeftNodeID(leftNodeID, parameters);
-	//rightRet = it->second.getRightNodeID(rightNodeID,parameters);
-
-//	printf("%llu %d %d\n", it->second.nodeID, leftRet, rightRet);
-	//	this node is not a semi-extended k-molecule
-		 
-//	unsigned char curMultiplicity=0;
-//    	char *pstr = const_cast<char *> (it->second.getLeftEdge(curMultiplicity));
-		
-	if(abs(leftRet) + abs(rightRet) != 1)
-	{
-		pthread_mutex_unlock(&it->second.lockFlag);
-		continue;
-	}
-
-	if(abs(leftRet)==1)
-	{
-		leftProc    = getProcsID(leftNodeID, parameters->hashLength, MPIcontrol);
-		myProc      = getProcsID(it->second.nodeID, parameters->hashLength, MPIcontrol);
-
-		//Processing LeftNode First, Send Lockmsg to leftNodeID's serviceThread 
-		data[0] = it->second.nodeID;
-		data[1] = leftNodeID;
-		data[2] = 1*10;	//positive side
-		
-		MPI_Isend(data, 3, MPI_LONG_LONG_INT, leftProc, ServiceTunnel, MPI_COMM_WORLD, &data_reqs[0]);
-		//Recv LockReply from leftNodeID,
-		MPI_Irecv(rdata, 3, MPI_LONG_LONG_INT, leftProc, ComputingTunnel, MPI_COMM_WORLD, &data_reqs[1]);
-		recvProc(parameters, MPIcontrol, 2, data_reqs);
-	
-		leftLockResult = rdata[2];	
-		if(LDEBUG)	printf("|proc:%d Node(%llu)(%s) Sending LockMsg to -[%llu](%llu)(%s)-\n",MPIcontrol->rank, it->second.nodeID,kmerGraph::longLongToString(it->second.nodeID, parameters).c_str(), leftProc, leftNodeID, kmerGraph::longLongToString(leftNodeID, parameters).c_str());
-		if(LDEBUG)	printf("|proc:%d Node(%llu)(%s) Recv LockReply from -[%llu](%llu)(%s) Ret=%d-\n",MPIcontrol->rank, it->second.nodeID, kmerGraph::longLongToString(it->second.nodeID, parameters).c_str(), leftProc, leftNodeID, kmerGraph::longLongToString(leftNodeID, parameters).c_str(), leftLockResult);
-		fflush(stdout);
-	}
-	else
-	{
-		rightProc   = getProcsID(rightNodeID, parameters->hashLength, MPIcontrol);
-		myProc      = getProcsID(it->second.nodeID, parameters->hashLength, MPIcontrol);
-		
-		//Processing RightNode, Send Lockmsg to rightNodeID's serviceThread  
-		data[0] = it->second.nodeID;
-		data[1] = rightNodeID;
-		data[2] = 0*10;	//negative side
-		MPI_Isend(data, 3, MPI_LONG_LONG_INT, rightProc, ServiceTunnel, MPI_COMM_WORLD, &data_reqs[0]);
-
-		//Recv LockReply from rightNodeID
-		MPI_Irecv(rdata, 3, MPI_LONG_LONG_INT, rightProc, ComputingTunnel, MPI_COMM_WORLD, &data_reqs[1]);
-		recvProc(parameters, MPIcontrol, 2, data_reqs);
-
-		rightLockResult = rdata[2];
-		if(LDEBUG) printf("|proc:%d Node(%llu)(%s) Sending LockMsg to -[%llu](%llu)(%s)-\n",MPIcontrol->rank, it->second.nodeID, kmerGraph::longLongToString(it->second.nodeID,parameters).c_str(), rightProc, rightNodeID, kmerGraph::longLongToString(rightNodeID, parameters).c_str());
-		if(LDEBUG) printf("|proc:%d Node(%llu)(%s) Recv LockReply from -[%llu](%llu)(%s) Ret=%d-\n",MPIcontrol->rank, it->second.nodeID, kmerGraph::longLongToString(it->second.nodeID, parameters).c_str(), rightProc, rightNodeID, kmerGraph::longLongToString(rightNodeID, parameters).c_str(), rightLockResult);
-		fflush(stdout);
-	}
-
-	if(abs(leftRet)==1 && leftLockResult==1)
-	{
-   		// Lock Success,  do some thing here.
-    		data[0] = it->second.nodeID;
-    		data[1] = leftNodeID;
-    		data[2] = 4 + 1*10 + 100*0 + 100000*0;	//negative side kmer
-			
-	    	MPI_Isend(data, 3, MPI_LONG_LONG_INT, leftProc, ServiceTunnel, MPI_COMM_WORLD, &data_reqs[0]);
-		recvProc(parameters, MPIcontrol, 1, data_reqs);
-	    
-	    	if(LDEBUG)       printf("|proc:%d Node(%llu)(%s) Send EdgeLength=%llu to -[%llu](%llu)(%s)-\n",MPIcontrol->rank, it->second.nodeID, kmerGraph::longLongToString(it->second.nodeID, parameters).c_str(), data[2]/100000, rightProc, rightNodeID, kmerGraph::longLongToString(rightNodeID, parameters).c_str());
-		fflush(stdout);
-		
-		it->second.deleteFlag = 0; 
-	}
-	else if(abs(rightRet)==1 && rightLockResult==1)
-	{
-   		// Lock Success,  do some thing here.
-    		data[0] = it->second.nodeID;
-    		data[1] = rightNodeID;
-    		data[2] = 4 + 0*10 + 100*0 + 100000*0;	//positive side kmer
-    		MPI_Isend(data, 3, MPI_LONG_LONG_INT, rightProc, ServiceTunnel, MPI_COMM_WORLD, &data_reqs[0]);
-		recvProc(parameters, MPIcontrol, 1, data_reqs);
-
-		if(LDEBUG)		printf("|proc:%d Node(%llu)(%s) Send EdgeLength=%llu to -[%llu](%llu)(%s)-\n",MPIcontrol->rank, it->second.nodeID, kmerGraph::longLongToString(it->second.nodeID, parameters).c_str(), data[2]/100000, leftProc, leftNodeID, kmerGraph::longLongToString(leftNodeID, parameters).c_str());
-    		//Set DeleteFlag for this node
-		it->second.deleteFlag = 0; 
-	}
-
-	pthread_mutex_unlock(&it->second.lockFlag);
-    }
-   
-	printf("proc%d: -----------------finshed\n", MPIcontrol->rank);
-	fflush(stdout);
-
-    	char sendFinishTag = 1;
-	MPI_Isend(&sendFinishTag, 1, MPI_CHAR, 0, EndTunnel, MPI_COMM_WORLD, &send_reqs);
-	
-    	if(MPIcontrol->rank == 0)  
-	{
-		for(int i=0; i<MPIcontrol->nprocs; i++)	recvFinishTag[i] = 0;
-
-		for(int i=0;i<MPIcontrol->nprocs;i++)
-		{
-			MPI_Irecv(&recvFinishTag[i], 1, MPI_CHAR, i, EndTunnel, MPI_COMM_WORLD, &data_reqs[i]);
-			printf("proc:%d recving FinishTag from %d\n", MPIcontrol->rank, i);
-			fflush(stdout);
-		}
-	
-		recvProc(parameters, MPIcontrol, MPIcontrol->nprocs, data_reqs);	
-
-		int sum = 0;
-		for(int i=0; i<MPIcontrol->nprocs; i++)
-	    	sum += recvFinishTag[i];
-
-		printf("---------------------------%d\n", sum);
-		fflush(stdout);
-		if(sum != MPIcontrol->nprocs)
-		{
-	    	printf("Gather Tags Error\n");
-	    	exit(0);
-		}
-	}
-
-	recvProc(parameters, MPIcontrol, 1, &send_reqs);
-   
-   	unsigned long long endData[5000][3];	
-	if(MPIcontrol->rank==0)
-   	 {
-		for(int i=0;i<MPIcontrol->nprocs;i++)
-		{
-			endData[i][0] = 0;
-	    	endData[i][1] = i;
-			endData[i][2] = 9;
-	    	MPI_Isend(endData[i], 3, MPI_LONG_LONG_INT, i, ServiceTunnel, MPI_COMM_WORLD, &data_reqs[i]);
-//			printf("proc:%d Sending (%llu %llu %llu)\n", MPIcontrol->rank, endData[i][0], endData[i][1], endData[i][2]);
-//			printf("proc:%d sending killTag to %d\n", MPIcontrol->rank, i);
-//			fflush(stdout);
-		}
-    	}
-
-	while(recvProc(parameters, MPIcontrol, 0, data_reqs) == 0);	
-
-	if(MPIcontrol->rank==0)
-	{	
-		MPI_Waitall(MPIcontrol->nprocs, data_reqs, data_status);
-	}
-
-	delete data_reqs;
-	delete data_status;
-	data_reqs = NULL;
-	data_status = NULL;
-	
-	printf("*proc:%d  (%d) Node has locked by other process\n", MPIcontrol->rank, lockCount);
-	printf("|proc:%d CircleNum = %d\n", MPIcontrol->rank, CircleNum);
-}
-
 
 
 void distNodeGraph::masterSimplifyNodeGraph(parameter *parameters, MPIEnviroment *MPIcontrol)
 {
-    	hash_map<unsigned long long, node>::iterator it;
+	hash_map<LKmer, node>::iterator it;
 
 	int num = 0;
     	for(it=nodes.begin();it!=nodes.end();it++)
@@ -2126,7 +1333,7 @@ void distNodeGraph::masterSimplifyNodeGraph(parameter *parameters, MPIEnviroment
 		
 
 		int leftDirection, rightDirection;
-		unsigned long long leftNode, rightNode;
+		LKmer leftNode, rightNode;
 		rightDirection = it->second.getNodeID(right, rightNode, parameters);
 		leftDirection  = it->second.getNodeID(left,  leftNode, parameters);					
 
@@ -2194,7 +1401,7 @@ void distNodeGraph::masterSimplifyNodeGraph(parameter *parameters, MPIEnviroment
 void distNodeGraph::masterTipsRemoval(parameter  *parameters, MPIEnviroment *MPIcontrol)
 {
 
-    	hash_map<unsigned long long, node>::iterator it;
+    	hash_map<LKmer, node>::iterator it;
 
 	int num = 0;
     	for(it=nodes.begin();it!=nodes.end();it++)
@@ -2220,7 +1427,7 @@ void distNodeGraph::masterTipsRemoval(parameter  *parameters, MPIEnviroment *MPI
 		if(arcNum==1 && it->second.arcs[index].length() < parameters->hashLength) 
 		{
 			int nextDirection;
-			unsigned long long nextNode;		
+			LKmer nextNode;		
 			nextDirection = it->second.getNodeID(index, nextNode, parameters);
 
 			int Ret = nodes[nextNode].getSrcNodeEdge(it->first, index<4?0:1, string(""), 0, 2, parameters);
@@ -2266,7 +1473,7 @@ void distNodeGraph::masterTipsRemoval(parameter  *parameters, MPIEnviroment *MPI
 
 void distNodeGraph::masterLowCoverageEdgeRemoval(parameter *parameters, MPIEnviroment *MPIcontrol)
 {
-    	hash_map<unsigned long long, node>::iterator it;
+    hash_map<LKmer, node>::iterator it;
 
 	unsigned long long TotalCovarage = 0;
 	unsigned long long TotalNucleotide = 0;
@@ -2281,10 +1488,12 @@ void distNodeGraph::masterLowCoverageEdgeRemoval(parameter *parameters, MPIEnvir
 			TotalCovarage += it->second.arcs[i].length() * it->second.multiplicity[i];
 		}
 	}
-	unsigned long long avgCoverage =  TotalCovarage / TotalNucleotide;
-
-	
-    	for(it=nodes.begin();it!=nodes.end();it++)
+	unsigned long long avgCoverage;
+	if(TotalNucleotide != 0)
+		avgCoverage =  TotalCovarage / TotalNucleotide;
+	else
+		avgCoverage = 0;
+	for(it=nodes.begin();it!=nodes.end();it++)
 	{
 		if(it->second.deleteFlag == 0)	continue;
 
@@ -2301,13 +1510,13 @@ void distNodeGraph::masterLowCoverageEdgeRemoval(parameter *parameters, MPIEnvir
 
 void distNodeGraph::masterLoopBubbleRemoval(parameter *parameters, MPIEnviroment *MPIcontrol)
 {
-    	hash_map<unsigned long long, node>::iterator it;
+    	hash_map<LKmer, node>::iterator it;
 
     	for(it=nodes.begin();it!=nodes.end();it++)
 	{
 		if(it->second.deleteFlag == 0)	continue;
 
-		unsigned long long nextNode = 0,  nextNode2 = 0;
+		LKmer nextNode = 0,  nextNode2 = 0;
 		int degree = 0;
 		int loopDegree = 0;
 		vector<int> loopIndex, loopDirection;
@@ -2321,8 +1530,6 @@ void distNodeGraph::masterLoopBubbleRemoval(parameter *parameters, MPIEnviroment
 			if(nextNode == it->first)	loopDegree ++, loopIndex.push_back(i), loopDirection.push_back(Ret);
 			else				outEdge.push_back(i);
 		}
-
-//		printf("%llu loopDegree=%d outEdgeNum=%d\n", it->first, loopIndex.size(), outEdge.size());
 
 		//isolated Nodes
 		if(outEdge.size()==0)	continue;
@@ -2457,7 +1664,6 @@ void distNodeGraph::masterLoopBubbleRemoval(parameter *parameters, MPIEnviroment
 		{
 			if(it->second.arcs[i].length()==0)	continue; // srcNode ->  nextNode 	
 			int Ret = it->second.getNodeID(i, nextNode, parameters);
-			if(it->first == 46912496118442)		printf("%llu[%d] -> %llu %d\n", it->first, i, nextNode, Ret);	
 			if(nextNode == it->first)
 			{
 				index       = i; 
@@ -2469,7 +1675,6 @@ void distNodeGraph::masterLoopBubbleRemoval(parameter *parameters, MPIEnviroment
 				nextRevRet  = it->second.getSrcNodeEdge(it->first, (index<4?0:1), string(""), 0,  tmpDirection, parameters);
 				if(nextRevRet==-1)	continue;
 				nextRevRet  = nextRevRet>>2;
-//				printf("Node %llu: Length of looparc is%d(%d) (%d_%d, %d) degree %d\n", it->first, it->second.arcs[index].length(), it->second.multiplicity[index], index,Ret, nextRevRet, degree);	
 			}
 		}
 
@@ -2479,20 +1684,20 @@ void distNodeGraph::masterLoopBubbleRemoval(parameter *parameters, MPIEnviroment
 
 void distNodeGraph::masterMultipleEdgeBubbleRemoval(parameter *parameters, MPIEnviroment *MPIcontrol)
 {
-    	hash_map<unsigned long long, node>::iterator it;
+    	hash_map<LKmer, node>::iterator it;
 
 	int totNodeNum = 0;
 	int multipleEdgeNodeNum=0, resolvableNodeNum=0, diffNodeNum=0, sameNodeNum=0;
 	int diffSolvNum = 0, diffSolvNum2 = 0,  diffSolvRemNum = 0;
 	int positiveNum =0, negativeNum = 0, otherNum=0;
 
-	unsigned long long nextNodei = 0, nextNodej = 0;
+	LKmer nextNodei = 0, nextNodej = 0;
 	int Directioni, Directionj;
 	int retIndexi, retIndexj;
 	int retDireci, retDirecj;
 	vector<int> multiSrcIndex, multiEndIndex;
 	vector<int> multiSrcDirec, multiEndDirec;
-	vector<unsigned long long> multiSrc, multiEnd;
+	vector<LKmer> multiSrc, multiEnd;
 	vector<int> outSrcEdgeIndex, outEndEdgeIndex;
 	vector<int> outSrcArcMul, outEndArcMul;
 	vector<int> outSrcArcLen, outEndArcLen;
@@ -2525,21 +1730,11 @@ void distNodeGraph::masterMultipleEdgeBubbleRemoval(parameter *parameters, MPIEn
 					int kdegree = 0, degree = 0;;
 					for(int k=0;k<8;k++)
 						if(it->second.arcs[k].length()>0)	degree++;						
-
-/*					for(int k=0;k<8;k++)
-						if(nodes[nextNodei].arcs[k].length() > 0)	kdegree ++;
-	
-					if(kdegree !=3 || degree != 3)	 
-					{	
-						printf("degree = %d kdegree = %d\n", degree, kdegree);		
-						continue;	//Local resolveable Node will be left
-					}	
-*/
 					if(degree != 3)		continue;
 					resolvableNodeNum ++;
 					
 					//get outEdgeNodei and outEdgeNodej
-					unsigned long long outEdgeNodei=0, outEdgeNodej=0, tmpNode;
+					LKmer outEdgeNodei=0, outEdgeNodej=0, tmpNode;
 					int outEdgeIndexi=-1, outEdgeIndexj=-1;
 					int outEdgeReti, outEdgeRetj;						
 
@@ -2556,9 +1751,6 @@ void distNodeGraph::masterMultipleEdgeBubbleRemoval(parameter *parameters, MPIEn
 						int Ret = nodes[nextNodei].getNodeID(k, tmpNode, parameters);
 						if(tmpNode != it->first)	outEdgeNodej=tmpNode, outEdgeRetj=Ret=-1?0:1, outEdgeIndexj=k;
 					}
-
-			//		printf("%llu nextNodei&j=%llu, outEdgeNodei=%llu(%d), outEdgeNodej=%llu(%d)\n", it->first, nextNodei, outEdgeNodei, outEdgeIndexi, outEdgeNodej, outEdgeIndexj);
-					
 
 					//This function has error, fuck !
 					//Get Index of reverse Edge from nextNodei or nextNodej
@@ -2581,32 +1773,12 @@ void distNodeGraph::masterMultipleEdgeBubbleRemoval(parameter *parameters, MPIEn
 						if( !((i<4&&j>3) || (i>3&&j<4)) )  
 						{
 							diffSolvRemNum ++; 	
-							if( (i<4 && RetDirec==1) || (i>3 && RetDirec==0)) 
-							{ 	
-		/*						int selfDirect = outEdgeIndexj<4?1:0;
-								if(Directioni == selfDirect) 
-								{
-									it->second.arcs[j].clear();
-									it->second.multiplicity[j] = 0;
-									nodes[nextNodej].arcs[retIndexj].clear();
-									nodes[nextNodej].multiplicity[retIndexj]=0;
-								}
-								else
-								{
-									it->second.arcs[i].clear();
-									it->second.multiplicity[i]=0;
-									nodes[nextNodei].arcs[retIndexi].clear();
-									nodes[nextNodei].multiplicity[retIndexi]=0;
-								}
-								continue;	
-		*/					}
 							continue; 
 						}
 
 						if( (outEdgeIndexi<4&&outEdgeIndexj<4) || (outEdgeIndexi>3&&outEdgeIndexj>3) )  
 						{
 							diffSolvNum ++;	
-//							if(it->second.multiplicity[i] <= it->second.multiplicity[j] && outEdgeIndexi<4 )
 							if(outEdgeIndexi<4)
 							{
 								nodes[outEdgeNodei].arcs[RetIndex] = nodes[outEdgeNodei].arcs[RetIndex] + it->second.arcs[j] + nodes[nextNodei].arcs[retIndexi];
@@ -2705,14 +1877,7 @@ void distNodeGraph::masterMultipleEdgeBubbleRemoval(parameter *parameters, MPIEn
 							multiEndDirec.push_back(Directionj);
 							multiSrc.push_back(it->first);
 							multiEnd.push_back(nextNodei);
-/*							
-							outSrcEdgeIndex.push_back(outEdgeIndexi);
-							outEndEdgeIndex.push_back(outEdgeIndexj);
-							outSrcArcMul.push_back(it->second.multiplicity[outEdgeIndexi]);
-							outEndArcMul.push_back(nodes[nextNodei].multiplicity[outEdgeIndexj]);
-							outSrcArcLen.push_back( it->second.arcs[outEdgeIndexi].length() );
-							outEndArcLen.push_back( nodes[nextNodei].arcs[outEdgeIndexj].length() );
-*/						}
+						}
 					} 
 				}
 			}
@@ -2722,15 +1887,11 @@ void distNodeGraph::masterMultipleEdgeBubbleRemoval(parameter *parameters, MPIEn
 
 	printf("Total node numbler is %d, multipleEdgeNodeNum is %d, resolvableNodeNum is %d, diffDirectionNode is (%d %d)%d, sameDirectionNode is %d \n", totNodeNum, multipleEdgeNodeNum, resolvableNodeNum, diffSolvNum,diffSolvNum2,  diffNodeNum, sameNodeNum);
 	printf("diffSolvRemNum = %d, vector size = %d\n", diffSolvRemNum, multiSrcIndex.size());
-	for(int i=0;i<multiSrcIndex.size();i++)
-	{
-//		printf("Bubble (%llu[%d] [%d] -> %llu) ArcLength (%d %d) Multiplicity (%d %d) Direction (%d %d) OutIndex (%d %d) [%d_%d %d_%d]\n", multiSrc[i], multiSrcIndex[i], multiEndIndex[i], multiEnd[i], nodes[multiSrc[i]].arcs[multiSrcIndex[i]].length(), nodes[multiSrc[i]].arcs[multiEndIndex[i]].length(),  nodes[multiSrc[i]].multiplicity[multiSrcIndex[i]], nodes[multiSrc[i]].multiplicity[multiEndIndex[i]], multiSrcDirec[i], multiEndDirec[i], outSrcEdgeIndex[i], outEndEdgeIndex[i], outSrcArcLen[i],  outSrcArcMul[i], outEndArcLen[i], outEndArcMul[i]);
-	}
 }
 
 void distNodeGraph::masterGraphStatistic(parameter *parameters, MPIEnviroment *MPIcontrol)
 {
-    	hash_map<unsigned long long, node>::iterator it;
+    	hash_map<LKmer, node>::iterator it;
 
 	unsigned long long TotalCovarage = 0;
 	unsigned long long TotalNucleotide = 0;
@@ -2761,7 +1922,7 @@ void distNodeGraph::masterGraphStatistic(parameter *parameters, MPIEnviroment *M
 		if(arcNum==1 && it->second.arcs[index].length()<parameters->hashLength )	tipNodeNum++;		
 
 		//loop node number 
-		unsigned long long nextNode[8];
+		LKmer nextNode[8];
 		for(int i=0;i<8;i++)	nextNode[i] = 0;
 
 		int degree = 0;
@@ -2801,8 +1962,11 @@ void distNodeGraph::masterGraphStatistic(parameter *parameters, MPIEnviroment *M
 		}	
 		if(positiveIn == positiveOut ) crossNode++;
 	}
-
-	unsigned long long avgCoverage =  TotalCovarage / TotalNucleotide;
+	unsigned long long avgCoverage;
+	if(TotalNucleotide != 0)
+		avgCoverage =  TotalCovarage / TotalNucleotide;
+	else
+		avgCoverage = 0;
 	printf("AvgCoverage = %d\n", avgCoverage);
 	
 	printf("Total node numbler is %d, tipNodeNum is %d, loopNodeNum is %d, multipleEdgeNodeNum is %d, resolvableNodeNum is %d CrossNode %d\n", totNodeNum, tipNodeNum,loopNodeNum, multipleEdgeNodeNum, resolvableNodeNum, crossNode);
@@ -2810,7 +1974,7 @@ void distNodeGraph::masterGraphStatistic(parameter *parameters, MPIEnviroment *M
 
 void distNodeGraph::masterRemoveCrossNode(parameter *parameters, MPIEnviroment *MPIcontrol)
 {
-    	hash_map<unsigned long long, node>::iterator it;
+    	hash_map<LKmer, node>::iterator it;
 	int crossNode[9];
 	for(int i=0;i<9;i++)	crossNode[i]=0;
 
@@ -2869,7 +2033,7 @@ void distNodeGraph::masterRemoveCrossNode(parameter *parameters, MPIEnviroment *
 				negativeIndex[1] = tmp; 
 			}
 		
-			unsigned long long ID;
+			LKmer ID;
 			int IDindex;
 
 			for(int i=0;i<2;i++)
@@ -2884,27 +2048,18 @@ void distNodeGraph::masterRemoveCrossNode(parameter *parameters, MPIEnviroment *
 			it->second.deleteFlag = 0;
 		}
 	}
-//	for(int i=0;i<9;i++)
-//		printf("CrossNode[%d] = %d\t", i, crossNode[i]);
+
 	printf("\n");
 }
 	
 void distNodeGraph::masterRemoveCrossEdge(parameter *parameters, MPIEnviroment *MPIcontrol)
 {
-    	hash_map<unsigned long long, node>::iterator it;
+    	hash_map<LKmer, node>::iterator it;
 	int crossEdge=0;
 	
 	
 	for(it=nodes.begin();it!=nodes.end();it++)
 	{
-	/*	
-	printf("Node %llu\n", 4373594623408022034);
-	for(int i=0;i<8;i++)
-	{
-		if(nodes[4373594623408022034].arcs[i].length()==0)	continue;
-		printf("[%d] (%d %d) \t", i, nodes[4373594623408022034].arcs[i].length(), nodes[4373594623408022034]. multiplicity[i]);
-	}
-*/
 		if(it->second.deleteFlag == 0)	continue;
 		
 		int positiveOut=0, negativeOut=0;
@@ -2918,9 +2073,9 @@ void distNodeGraph::masterRemoveCrossEdge(parameter *parameters, MPIEnviroment *
 		if( positiveOut+negativeOut != 3 )		continue;
 		if(positiveOut==0 || negativeOut==0)		continue;		
 
-		unsigned long long nextNodei;
+		LKmer nextNodei;
 		int indexi=-1, Retnext, Ret;
-		unsigned long long ID, ID2;
+		LKmer ID, ID2;
 		int IDindex, IDindex2;
 		//Cross edge number
 		for(int i=0;i<8;i++)
@@ -2929,14 +2084,7 @@ void distNodeGraph::masterRemoveCrossEdge(parameter *parameters, MPIEnviroment *
 			if(positiveOut==2 && i<4)	continue;		
 			
 			if(it->second.arcs[i].length()==0)	continue;
-/*
-			it->second.getReverseEdge(i, nextNodei, Retnext, parameters);
-			if(nodes[nextNodei].arcs[Retnext].length()==0)	continue;
 
-			nodes[nextNodei].getReverseEdge(Retnext, ID, IDindex, parameters);
-			if(ID==it->first && IDindex==i)			
-				indexi = i;	
-*/
 			Ret = it->second.getNodeID(i,nextNodei,parameters);	
 			Ret = (Ret==-1?0:1);	
 
@@ -2948,21 +2096,7 @@ void distNodeGraph::masterRemoveCrossEdge(parameter *parameters, MPIEnviroment *
 		if(indexi==-1)	continue;
 
 		if(it->first == nextNodei)	continue;
-/*
-		printf("Node %llu [%d] (%d %d)\t", it->first, indexi, it->second.arcs[indexi].length(), it->second.multiplicity[indexi] );
-		for(int i=0;i<8;i++)
-		{
-			if(it->second.arcs[i].length()==0|| i==indexi)	continue;
-			printf("[%d] (%d %d) \t", i, it->second.arcs[i].length(), it->second.multiplicity[i]);
-		}
-		printf("\nNode %llu [%d] (%d %d)\t", nextNodei, Retnext, nodes[nextNodei].arcs[Retnext].length(), nodes[nextNodei].multiplicity[Retnext]);
-		for(int i=0;i<8;i++)
-		{
-			if(nodes[nextNodei].arcs[i].length()==0|| i==Retnext)	continue;
-			printf("[%d] (%d %d) \t", i, nodes[nextNodei].arcs[i].length(), nodes[nextNodei].multiplicity[i]);
-		}
-		printf("\n\n");
-*/		
+
 		int degreeOut=0, degreetotal=0;
 		for(int i=0;i<8;i++)
 		{
@@ -2974,9 +2108,6 @@ void distNodeGraph::masterRemoveCrossEdge(parameter *parameters, MPIEnviroment *
 		}
 		if(degreetotal!=3)	continue;		
 		if(degreeOut!=2)	continue;
-
-//		if(it->second.arcs[indexi].length() > 90-parameters->hashLength) continue;
-
 	
 		crossEdge ++;
 
@@ -2993,9 +2124,6 @@ void distNodeGraph::masterRemoveCrossEdge(parameter *parameters, MPIEnviroment *
 			Ret = it->second.getNodeID(i, ID, parameters);		//get the ID	
 			IDindex = nodes[ID].getSrcNodeEdge(it->first, i<4?0:1, string(""), 0, 2, parameters);
 			if(IDindex==-1)	continue;
-		//	it->second.getReverseEdge(i, ID, IDindex, parameters);
-		//	nodes[ID].getReverseEdge(IDindex, ID2, IDindex2, parameters);
-		//	if(ID2==it->first && IDindex2==i )	
 			leftIndex[tk++] = i;			
 		}	
 		if(tk!=2)	continue;	
@@ -3012,9 +2140,6 @@ void distNodeGraph::masterRemoveCrossEdge(parameter *parameters, MPIEnviroment *
 			Ret = nodes[nextNodei].getNodeID(i, ID, parameters);		//get the ID	
 			IDindex = nodes[ID].getSrcNodeEdge(nextNodei, i<4?0:1, string(""), 0, 2, parameters);
 			if(IDindex==-1)	continue;
-		//	nodes[nextNodei].getReverseEdge(i, ID, IDindex,parameters);
-		//	nodes[ID].getReverseEdge(IDindex, ID2, IDindex, parameters);
-		//	if(ID2==nextNodei && IDindex2==i)	
 			rightIndex[tk++] = i;	
 		}
 		if(tk!=2)	continue;
@@ -3034,35 +2159,11 @@ void distNodeGraph::masterRemoveCrossEdge(parameter *parameters, MPIEnviroment *
 			rightIndex[1] = tmp;
 		}	
 	
-
-//		it->second.getReverseEdge(indexi, ID, IDindex, parameters);
-//		assert(nextNodei==ID && Retnext == IDindex);
-//		nextNodei=ID, Retnext = IDindex;		
-
-//		printf("Merging Cross Edge %llu %llu\n", it->first, nextNodei);	
-//		printf("%d %d %d %d\n",  leftIndex[0], leftIndex[1], rightIndex[0], rightIndex[1]);
-
 		Ret = it->second.getNodeID(leftIndex[0], ID, parameters);		//get the ID	
 		IDindex = nodes[ID].getSrcNodeEdge(it->first, leftIndex[0]<4?0:1, string(""), 0, 2, parameters);
 		if(IDindex==-1) continue;
 		assert(IDindex!=-1);
 		IDindex = IDindex>>2;	
-//		it->second.getReverseEdge(leftIndex[0], ID, IDindex, parameters);
-//		printf("%llu %d   ", ID, IDindex);
-/*
-		if(ID==3692893566669934926 || ID==4373594623408022034)
-		{	
-			printf("Node %llu [%d] (%d %d)\t", ID, IDindex, nodes[ID].arcs[IDindex].length(), nodes[ID].multiplicity[IDindex] );
-			for(int i=0;i<8;i++)
-			{
-				if(nodes[ID].arcs[i].length()==0|| i==IDindex)	continue;
-				unsigned long long tmpID; 
-				int tmpIDindex;
-				nodes[ID].getReverseEdge(i,tmpID, tmpIDindex, parameters);
-				printf("[%d-->%llu-%d] (%d %d) \t", i, tmpID, tmpIDindex, nodes[ID].arcs[i].length(), nodes[ID].multiplicity[i]);
-			}
-		}
-*/	
 		nodes[ID].arcs[IDindex] +=  (it->second.arcs[indexi] + nodes[nextNodei].arcs[rightIndex[0]]);
 		nodes[ID].multiplicity[IDindex] = ( (int) nodes[ID].multiplicity[IDindex] + it->second.multiplicity[indexi] + nodes[nextNodei].multiplicity[rightIndex[0]])/nodes[ID].arcs[IDindex].length();
 
@@ -3072,22 +2173,7 @@ void distNodeGraph::masterRemoveCrossEdge(parameter *parameters, MPIEnviroment *
 		if(IDindex==-1)	continue;
 		assert(IDindex!=-1);
 		IDindex = IDindex>>2;	
-//		nodes[nextNodei].getReverseEdge(rightIndex[0], ID, IDindex, parameters);
-//		printf("%llu %d   ", ID, IDindex);	
-		
-/*		if(ID==3692893566669934926 || ID==4373594623408022034)
-		{	
-			printf("Node %llu [%d] (%d %d)\t", ID, IDindex, nodes[ID].arcs[IDindex].length(), nodes[ID].multiplicity[IDindex] );
-			for(int i=0;i<8;i++)
-			{
-				if(nodes[ID].arcs[i].length()==0|| i==IDindex)	continue;
-				unsigned long long tmpID;
-				int tmpIDindex;
-				nodes[ID].getReverseEdge(i,tmpID, tmpIDindex, parameters);
-				printf("[%d-->%llu-%d] (%d %d) \t", i, tmpID, tmpIDindex, nodes[ID].arcs[i].length(), nodes[ID].multiplicity[i]);
-			}
-		}
-*/
+
 		nodes[ID].arcs[IDindex] +=  (nodes[nextNodei].arcs[Retnext] + it->second.arcs[leftIndex[0]]);
 		nodes[ID].multiplicity[IDindex] = ( (int) nodes[ID].multiplicity[IDindex] + nodes[nextNodei].multiplicity[Retnext] + it->second.multiplicity[leftIndex[0]])/nodes[ID].arcs[IDindex].length();	
 
@@ -3096,22 +2182,7 @@ void distNodeGraph::masterRemoveCrossEdge(parameter *parameters, MPIEnviroment *
 		if(IDindex==-1)	continue;
 		assert(IDindex!=-1);
 		IDindex = IDindex>>2;	
-//		it->second.getReverseEdge(leftIndex[1], ID, IDindex, parameters);
-//		printf("%llu %d   ", ID, IDindex);	
-		
-/*		if(ID==3692893566669934926 || ID==4373594623408022034)
-		{	
-			printf("Node %llu [%d] (%d %d)\t", ID, IDindex, nodes[ID].arcs[IDindex].length(), nodes[ID].multiplicity[IDindex] );
-			for(int i=0;i<8;i++)
-			{
-				if(nodes[ID].arcs[i].length()==0|| i==IDindex)	continue;
-				unsigned long long tmpID;
-				int  tmpIDindex;
-				nodes[ID].getReverseEdge(i,tmpID, tmpIDindex, parameters);
-				printf("[%d-->%llu-%d] (%d %d) \t", i, tmpID, tmpIDindex, nodes[ID].arcs[i].length(), nodes[ID].multiplicity[i]);
-			}
-		}
-*/
+
 		nodes[ID].arcs[IDindex] +=  (it->second.arcs[indexi] + nodes[nextNodei].arcs[rightIndex[1]]);
 		nodes[ID].multiplicity[IDindex] = ( (int) nodes[ID].multiplicity[IDindex] + it->second.multiplicity[indexi] + nodes[nextNodei].multiplicity[rightIndex[1]])/nodes[ID].arcs[IDindex].length();
 
@@ -3120,43 +2191,13 @@ void distNodeGraph::masterRemoveCrossEdge(parameter *parameters, MPIEnviroment *
 		if(IDindex==-1)	continue;
 		assert(IDindex!=-1);
 		IDindex = IDindex>>2;	
-//		nodes[nextNodei].getReverseEdge(rightIndex[1], ID, IDindex, parameters);
-//		printf("%llu %d   ", ID, IDindex);	
-		
-/*		if(ID==3692893566669934926 || ID==4373594623408022034)
-		{	
-			printf("Node %llu [%d] (%d %d)\t", ID, IDindex, nodes[ID].arcs[IDindex].length(), nodes[ID].multiplicity[IDindex] );
-			for(int i=0;i<8;i++)
-			{
-				if(nodes[ID].arcs[i].length()==0|| i==IDindex)	continue;
-				unsigned long long tmpID;
-				int tmpIDindex;
-				nodes[ID].getReverseEdge(i,tmpID, tmpIDindex, parameters);
-				printf("[%d-->%llu-%d] (%d %d) \t", i, tmpID, tmpIDindex, nodes[ID].arcs[i].length(), nodes[ID].multiplicity[i]);
-			}
-		}
-*/		nodes[ID].arcs[IDindex] +=  (nodes[nextNodei].arcs[Retnext]+it->second.arcs[leftIndex[1]]);
+
+		nodes[ID].arcs[IDindex] +=  (nodes[nextNodei].arcs[Retnext]+it->second.arcs[leftIndex[1]]);
 		nodes[ID].multiplicity[IDindex] = ((int) nodes[ID].multiplicity[IDindex] + nodes[nextNodei].multiplicity[Retnext] + it->second.multiplicity[leftIndex[1]])/nodes[ID].arcs[IDindex].length();	
 			
 		it->second.deleteFlag = 0;	
 		nodes[nextNodei].deleteFlag = 0;
 
-//		printf("end\n");
-/*
-		printf("Node %llu [%d] (%d %d)\t", it->first, indexi, it->second.arcs[indexi].length(), it->second.multiplicity[indexi] );
-		for(int i=0;i<8;i++)
-		{
-			if(it->second.arcs[i].length()==0|| i==indexi)	continue;
-			printf("[%d] (%d %d) \t", i, it->second.arcs[i].length(), it->second.multiplicity[i]);
-		}
-		printf("\nNode %llu [%d] (%d %d)\t", nextNodei, Retnext, nodes[nextNodei].arcs[Retnext].length(), nodes[nextNodei].multiplicity[Retnext]);
-		for(int i=0;i<8;i++)
-		{
-			if(nodes[nextNodei].arcs[i].length()==0|| i==Retnext)	continue;
-			printf("[%d] (%d %d) \t", i, nodes[nextNodei].arcs[i].length(), nodes[nextNodei].multiplicity[i]);
-		}
-		printf("\n\n");
-*/
 	}
 	printf("crossEdge is %d\n", crossEdge);
 
@@ -3165,7 +2206,7 @@ void distNodeGraph::masterRemoveCrossEdge(parameter *parameters, MPIEnviroment *
 
 void distNodeGraph::stringContigs(parameter *parameters, MPIEnviroment *MPIcontrol)
 {
-    hash_map<unsigned long long, node>::iterator it;
+    hash_map<LKmer, node>::iterator it;
 
     stringstream contigs;
     int tipsNum = 0;
@@ -3213,13 +2254,13 @@ void distNodeGraph::stringContigs(parameter *parameters, MPIEnviroment *MPIcontr
 			else   ret = 1;
 	        	assert(retDescriptor.length() == parameters->hashLength);
 
-	        	unsigned long long ID = kmerGraph::stringToLongLong(retDescriptor.c_str(),0,retDescriptor.length(),parameters);
+	        	LKmer ID = kmerGraph::stringToLongLong(retDescriptor.c_str(),0,retDescriptor.length(),parameters);
 		
 			if(it->second.nodeID < ID)	continue;
 
 			contigNum++;	
 			
-			contigs<<">contig_NodeID"<<it->first<<"_Index"<<i<<"_Len"<<descriptor.size()<<"_Mul"<<(int) (it->second.multiplicity[i])<<"_"<<contigNum<<"\n"<<descriptor<<"\n";	
+			contigs<<">contig_NodeID"<<it->first.seq3<<"_Index"<<i<<"_Len"<<descriptor.size()<<"_Mul"<<(int) (it->second.multiplicity[i])<<"_"<<contigNum<<"\n"<<descriptor<<"\n";	
 				
 		}
 		if(edgeCount==1 && edgeLength < parameters->hashLength) tipsNum++;
@@ -3248,7 +2289,7 @@ void distNodeGraph::masterPrintContigs(parameter *parameters, MPIEnviroment *MPI
 	exit(0); 
     }
 
-    hash_map<unsigned long long, node>::iterator it;
+    hash_map<LKmer, node>::iterator it;
 
     int tipsNum = 0;
     int contigNum = 0;	
@@ -3295,13 +2336,13 @@ void distNodeGraph::masterPrintContigs(parameter *parameters, MPIEnviroment *MPI
 			else   ret = 1;
 	        	assert(retDescriptor.length() == parameters->hashLength);
 
-	        	unsigned long long ID = kmerGraph::stringToLongLong(retDescriptor.c_str(),0,retDescriptor.length(),parameters);
+	        	LKmer ID = kmerGraph::stringToLongLong(retDescriptor.c_str(),0,retDescriptor.length(),parameters);
 		
 			if(it->second.nodeID < ID)	continue;
 		
 			contigNum++;	
 			
-			fprintf(fp, ">contig_NodeID%llu_Index%d_Len%d_Mul%d_%d\n%s\n", it->first, i, descriptor.size(),it->second.multiplicity[i], contigNum, descriptor.c_str());
+			fprintf(fp, ">contig_NodeID%llu_Index%d_Len%d_Mul%d_%d\n%s\n", it->first.seq3, i, descriptor.size(),it->second.multiplicity[i], contigNum, descriptor.c_str());
 		}
 		if(edgeCount==1 && edgeLength < parameters->hashLength) tipsNum++;
     }
@@ -3329,7 +2370,7 @@ void distNodeGraph::printJungGraph(parameter *parameters, MPIEnviroment *MPIcont
 	
 	if(MPIcontrol->rank != 0 ) return;
 
-    	hash_map<unsigned long long, node>::iterator it;
+    	hash_map<LKmer, node>::iterator it;
     	for(it=nodes.begin();it!=nodes.end();it++)
     	{
 		if(it->second.deleteFlag == 0)	continue;
@@ -3338,10 +2379,10 @@ void distNodeGraph::printJungGraph(parameter *parameters, MPIEnviroment *MPIcont
 		{
 			if(it->second.arcs[i].length()>0)
 			{
-				unsigned long long nextID;
+				LKmer nextID;
 				it->second.getNodeID(i, nextID, parameters);					
-				fprintf(fp1, "%llu\t%llu\t%llu\n", it->first, nextID, it->second.arcs[i].length());//, it->second.multiplicity[i]);
-				fprintf(fp2, "%llu\t%llu\t%llu\n", it->first, nextID, it->second.multiplicity[i]);
+				// fprintf(fp1, "%llu\t%llu\t%llu\n", it->first, nextID, it->second.arcs[i].length());//, it->second.multiplicity[i]);
+				// fprintf(fp2, "%llu\t%llu\t%llu\n", it->first, nextID, it->second.multiplicity[i]);
 			}
 		}
 	}
@@ -3361,7 +2402,7 @@ void distNodeGraph::printKmerGraph(parameter *parameters, MPIEnviroment *MPIcont
 	
 	if(MPIcontrol->rank != 0 ) return;
 
-    	hash_map<unsigned long long, node>::iterator it;
+    	hash_map<LKmer, node>::iterator it;
     	for(it=nodes.begin();it!=nodes.end();it++)
     	{
 		if(it->second.deleteFlag == 0)	continue;
@@ -3373,15 +2414,15 @@ void distNodeGraph::printKmerGraph(parameter *parameters, MPIEnviroment *MPIcont
     		for(int i=0;i<reverseStr.length();i++)
         		reverseStr[i] = parameters->nucleotideReverse[reverseStr[i]];
 
-		unsigned long long ID = kmerGraph::stringToLongLong(reverseStr.c_str(), 0, reverseStr.length(), parameters);
+		LKmer ID = kmerGraph::stringToLongLong(reverseStr.c_str(), 0, reverseStr.length(), parameters);
 
-		unsigned long long Next[4];
+		LKmer Next[4];
 		int kc=0;
 		for(int i=0;i<4;i++)
 		{
 			if(it->second.arcs[i].length()>0)
 			{
-				unsigned long long nextID;
+				LKmer nextID;
 				int Ret = it->second.getNodeID(i, nextID, parameters);
 	
 				if(Ret==-1)
@@ -3398,20 +2439,20 @@ void distNodeGraph::printKmerGraph(parameter *parameters, MPIEnviroment *MPIcont
 			}		
 		}
 
-                if(kc>0)
-                {
-                        fprintf(fp, "%llu", it->first);
-                        for(int i=0;i<kc;i++)
-                                fprintf(fp, " %llu",  Next[i]);
-                        fprintf(fp, "\n");
-                }
+                // if(kc>0)
+                // {
+                //         fprintf(fp, "%llu", it->first);
+                //         for(int i=0;i<kc;i++)
+                //                 fprintf(fp, " %llu",  Next[i]);
+                //         fprintf(fp, "\n");
+                // }
 
                 kc = 0;
                 for(int i=4;i<8;i++)
                 {
                         if(it->second.arcs[i].length()>0)
                         {
-                                unsigned long long nextID;
+                                LKmer nextID;
                                 int Ret = it->second.getNodeID(i, nextID, parameters);
 
                                 if(Ret==-1)
@@ -3428,13 +2469,13 @@ void distNodeGraph::printKmerGraph(parameter *parameters, MPIEnviroment *MPIcont
                         }
                 }
 
-                if(kc>0)
-                {
-                        fprintf(fp, "%llu", ID);
-                        for(int i=0;i<kc;i++)
-                                fprintf(fp, " %llu",  Next[i]);
-                        fprintf(fp, "\n");
-                }
+                // if(kc>0)
+                // {
+                //         fprintf(fp, "%llu", ID);
+                //         for(int i=0;i<kc;i++)
+                //                 fprintf(fp, " %llu",  Next[i]);
+                //         fprintf(fp, "\n");
+                // }
 	}
 	fclose(fp);
 }
@@ -3457,18 +2498,33 @@ int main (int argc, char *argv[])
 
     if(MPIcontrol.rank==0)	FP = fopen(parameters.LogPath, "w");
 
-//    sequence *sequences = new sequence;
-//    assert(sequences!=NULL);
-//    sequences->getSequences(&parameters, &MPIcontrol);
-
     MPI_Barrier(MPI_COMM_WORLD);
     if(MPIcontrol.rank==0)
     {	
 	t1 = clock();
 	sprintf(message, "Time spend in Geting Reads %.5f\n", (t1-t0)/(float)CLOCKS_PER_SEC);
 	MPIcontrol.print(message, FP);
-//	fprintf(FP, "Time spend in Geting Reads %.5f\n", (t1-t0)/(float)CLOCKS_PER_SEC);
     }
+
+
+//***************************** test********************************************
+    // LKmer tmp = 1;
+    // tmp = kmerGraph::stringToLongLong("ATCGATCGATCGATCGATCGATCGATCG", 0, 6, &parameters);
+    // printf("%llu\n", tmp.seq3);
+    // printf("%s\n", kmerGraph::longLongToString(tmp, &parameters).c_str());
+    // LKmer rev_tmp = kmerGraph::reverseComplement(tmp, &parameters);
+    // printf("%s\n", kmerGraph::longLongToString(rev_tmp, &parameters).c_str());
+    // printf("%llu\n", tmp.seq3);
+
+	// LKmer tmp = 1ull << 63;
+	// printf("%llu %llu %llu %llu\n", tmp.seq3,tmp.seq2,tmp.seq1,tmp.seq0);
+	// tmp >>= 63;
+	// printf("%llu %llu %llu %llu\n", tmp.seq3,tmp.seq2,tmp.seq1,tmp.seq0);
+	// tmp = tmp << 64;
+	// printf("%llu %llu %llu %llu\n", tmp.seq3,tmp.seq2,tmp.seq1,tmp.seq0);
+    // exit(0);
+//***************************** test********************************************
+
     
     //Distributed K-mer to processors
     kmerGraph *mygraph = new kmerGraph;
@@ -3477,7 +2533,9 @@ int main (int argc, char *argv[])
     distNodeGraph *nodeGraph = new distNodeGraph(&parameters, &MPIcontrol);
     assert(nodeGraph!=NULL);
     nodeGraph->constructDistNodeGraph(mygraph, &parameters, &MPIcontrol);
-  
+    
+  	// printf("%llu %llu %llu %llu\n", nodeGraph->kmolecules[0].seq3,nodeGraph->kmolecules[0].seq2,nodeGraph->kmolecules[0].seq1,nodeGraph->kmolecules[0].seq0);
+
     double communicationTime;
     MPI_Reduce(&mygraph->commtime, &communicationTime, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
     communicationTime = communicationTime / MPIcontrol.nprocs;
@@ -3491,36 +2549,15 @@ int main (int argc, char *argv[])
     MPI_Reduce(&mygraph->cuttime, &cutTimetot, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
     cutTimetot = cutTimetot / MPIcontrol.nprocs;
 
-/*
-    double storageTimetot;
-    MPI_Reduce(&mygraph->storagetime, &storageTimetot, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
-    storageTimetot = storageTimetot / MPIcontrol.nprocs;
-*/
-/*
-    double elapsedTime;
-    MPI_Reduce(&MPIcontrol.elapsedTime, &elapsedTime, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
-    elapsedTime = elapsedTime / MPIcontrol.nprocs;
 
-    double locateTime;
-    MPI_Reduce(&MPIcontrol.locateTime, &locateTime, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
-    locateTime = locateTime / MPIcontrol.nprocs;
-
-    double readTime;
-    MPI_Reduce(&MPIcontrol.locateTime, &readTime, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
-    readTime = readTime / MPIcontrol.nprocs;
-*/
     if(MPIcontrol.rank==0)
     {
-// 	fprintf(FP, "Time spend in I/O part in MPIcontrol %.5f\n", MPIcontrol.elapsedTime/(float)CLOCKS_PER_SEC);
-//	fprintf(FP, "Time spend in locate function %.5f\n", MPIcontrol.locateTime/(float)CLOCKS_PER_SEC);
-//	fprintf(FP, "Time spend in read function %.5f\n", MPIcontrol.readTime/(float)CLOCKS_PER_SEC);
- 
-	sprintf(message,"Time spend in I/O part in MPIcontrol %.5f\n", MPIcontrol.elapsedTime/(float)CLOCKS_PER_SEC);
- 	MPIcontrol.print(message, FP);	
-	sprintf(message, "Time spend in locate function %.5f\n", MPIcontrol.locateTime/(float)CLOCKS_PER_SEC);
-	MPIcontrol.print(message,FP);
-	sprintf(message,"Time spend in read function %.5f\n", MPIcontrol.readTime/(float)CLOCKS_PER_SEC);
-	MPIcontrol.print(message,FP);
+		sprintf(message,"Time spend in I/O part in MPIcontrol %.5f\n", MPIcontrol.elapsedTime/(float)CLOCKS_PER_SEC);
+	 	MPIcontrol.print(message, FP);	
+		sprintf(message, "Time spend in locate function %.5f\n", MPIcontrol.locateTime/(float)CLOCKS_PER_SEC);
+		MPIcontrol.print(message,FP);
+		sprintf(message,"Time spend in read function %.5f\n", MPIcontrol.readTime/(float)CLOCKS_PER_SEC);
+		MPIcontrol.print(message,FP);
     }
 
     delete mygraph;
@@ -3529,10 +2566,9 @@ int main (int argc, char *argv[])
     MPI_Barrier(MPI_COMM_WORLD);
     if(MPIcontrol.rank==0)
     {
-	t2 = clock();
-	sprintf(message, "Time spend in Constructing Graph %.5f (cutTimetot=%.5f, communication time=%.5f, communicationtimetot=%.5f)\n", (t2-t1)/(float)CLOCKS_PER_SEC, cutTimetot/(float)CLOCKS_PER_SEC, communicationTime/(float)CLOCKS_PER_SEC, communicationTimetot/(float)CLOCKS_PER_SEC);
-	MPIcontrol.print(message, FP);
-//	fprintf(FP, "Time spend in Constructing Graph %.5f (communication time=%.5f)\n", (t2-t1)/(float)CLOCKS_PER_SEC, communicationTime/(float)CLOCKS_PER_SEC);
+		t2 = clock();
+		sprintf(message, "Time spend in Constructing Graph %.5f (cutTimetot=%.5f, communication time=%.5f, communicationtimetot=%.5f)\n", (t2-t1)/(float)CLOCKS_PER_SEC, cutTimetot/(float)CLOCKS_PER_SEC, communicationTime/(float)CLOCKS_PER_SEC, communicationTimetot/(float)CLOCKS_PER_SEC);
+		MPIcontrol.print(message, FP);
     }
 
     sprintf(message, "Construct nodeGraph finished");
@@ -3540,7 +2576,7 @@ int main (int argc, char *argv[])
 
     MPI_Barrier(MPI_COMM_WORLD);
 
-    //nodeGraph->arcFrequency();	
+    nodeGraph->arcFrequency(&parameters);	
     nodeGraph->cutoffGraph(&MPIcontrol, parameters.cutoffThreshold);
 
     sprintf(message, "Cutoff Graph finished");
@@ -3549,32 +2585,29 @@ int main (int argc, char *argv[])
     MPI_Barrier(MPI_COMM_WORLD);
     if(MPIcontrol.rank==0)
     {
-	t3 = clock();
-	sprintf(message, "Time spend in cutoffGraph %.5f\n", (t3-t2)/(float)CLOCKS_PER_SEC);
-	MPIcontrol.print(message, FP);
-//	fprintf(FP, "Time spend in cutoffGraph %.5f\n", (t3-t2)/(float)CLOCKS_PER_SEC);
+		t3 = clock();
+		sprintf(message, "Time spend in cutoffGraph %.5f\n", (t3-t2)/(float)CLOCKS_PER_SEC);
+		MPIcontrol.print(message, FP);
     }
 
     nodeGraph->buildKmoleculeGraph(&MPIcontrol, &parameters);
 
-//    nodeGraph->checkDistNodeGraph(); 
-     nodeGraph->graphStatistics(&parameters, &MPIcontrol);
-//    nodeGraph->printDistNodeGraph(&parameters, &MPIcontrol);
+    nodeGraph->graphStatistics(&parameters, &MPIcontrol);
 
 
     MPI_Barrier(MPI_COMM_WORLD);
     if(MPIcontrol.rank==0)
     {
-	t4 = clock();
-	sprintf(message, "Time spend in Constructing DistGraph %.5f\n", (t4-t3)/(float)CLOCKS_PER_SEC);
-	MPIcontrol.print(message, FP);
+		t4 = clock();
+		sprintf(message, "Time spend in Constructing DistGraph %.5f\n", (t4-t3)/(float)CLOCKS_PER_SEC);
+		MPIcontrol.print(message, FP);
 
-//	fprintf(FP, "Time spend in Constructing DistGraph %.5f\n", (t4-t3)/(float)CLOCKS_PER_SEC);
     }
 
     //edge merging 
-    if(parameters.kmerGraphFlag==0)   nodeGraph->simplifyDistNodeGraph(&parameters, &MPIcontrol);
-
+    // ***************************此处异常退出*********************
+    if(parameters.kmerGraphFlag==0)   
+    	nodeGraph->simplifyDistNodeGraph(&parameters, &MPIcontrol);
     double worktotal, timetotal;
     MPI_Reduce(&nodeGraph->totalWorkTime, &worktotal, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
     MPI_Reduce(&nodeGraph->totalTime, &timetotal, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);	
@@ -3582,10 +2615,9 @@ int main (int argc, char *argv[])
     MPI_Barrier(MPI_COMM_WORLD);
     if(MPIcontrol.rank==0)
     {
-	t5 = clock();
-	sprintf(message, "Time spend in Simplify DistGraph %.5f (workTime=%.5f(%.5f), totalTime=%.5f(%.5f))\n", (t5-t4)/(float)CLOCKS_PER_SEC, nodeGraph->totalWorkTime/(float)CLOCKS_PER_SEC, worktotal/(float)CLOCKS_PER_SEC, nodeGraph->totalTime/(float)CLOCKS_PER_SEC, timetotal/(float)CLOCKS_PER_SEC);
-	MPIcontrol.print(message,FP);
-//	fprintf(FP, "Time spend in Simplify DistGraph %.5f (workTime=%.5f(%.5f), totalTime=%.5f(%.5f))\n", (t5-t4)/(float)CLOCKS_PER_SEC, nodeGraph->totalWorkTime/(float)CLOCKS_PER_SEC, worktotal/(float)CLOCKS_PER_SEC, nodeGraph->totalTime/(float)CLOCKS_PER_SEC, timetotal/(float)CLOCKS_PER_SEC);
+		t5 = clock();
+		sprintf(message, "Time spend in Simplify DistGraph %.5f (workTime=%.5f(%.5f), totalTime=%.5f(%.5f))\n", (t5-t4)/(float)CLOCKS_PER_SEC, nodeGraph->totalWorkTime/(float)CLOCKS_PER_SEC, worktotal/(float)CLOCKS_PER_SEC, nodeGraph->totalTime/(float)CLOCKS_PER_SEC, timetotal/(float)CLOCKS_PER_SEC);
+		MPIcontrol.print(message,FP);
     }
 
     if(parameters.performanceFlag)
@@ -3596,81 +2628,77 @@ int main (int argc, char *argv[])
     	MPI_Barrier(MPI_COMM_WORLD);
     	if(MPIcontrol.rank==0)
     	{
-		t1 = clock();
-		fprintf(FP, "Time spend in printDistGraph %.5f\n", (t1-t5)/(float)CLOCKS_PER_SEC);
+			t1 = clock();
+			fprintf(FP, "Time spend in printDistGraph %.5f\n", (t1-t5)/(float)CLOCKS_PER_SEC);
     	}
 
     	MPIcontrol.finalize();
     	if(MPIcontrol.rank==0)
     	{
-		t5 = clock();
-		fprintf(FP, "Time spend in All step %.5f\n", (t5)/(float)CLOCKS_PER_SEC);
-		fclose(FP);
+			t5 = clock();
+			fprintf(FP, "Time spend in All step %.5f\n", (t5)/(float)CLOCKS_PER_SEC);
+			fclose(FP);
     	}
     	return (0);
     } 
 
-//  nodeGraph->printDistNodeGraph(&parameters, &MPIcontrol);
     char *rBuf = nodeGraph->gatherDistNodeGraph(&parameters, &MPIcontrol);
     nodeGraph->nodes.clear();
-
+    //printf("%s\n", rBuf);
     if(parameters.distGraphFlag && parameters.kmerGraphFlag==0)	
     {
-	FILE *fp = fopen(parameters.graphPath,"w");
-	fprintf(fp, "%s\n", rBuf);
-	fclose(fp);
+		FILE *fp = fopen(parameters.graphPath,"w");
+		fprintf(fp, "%s\n", rBuf);
+		fclose(fp);
     }
 
     MPI_Barrier(MPI_COMM_WORLD);
     if(MPIcontrol.rank==0)
     {
-	t1 = clock();
-	fprintf(FP, "Time spend in printDistGraph %.5f\n", (t1-t5)/(float)CLOCKS_PER_SEC);
+		t1 = clock();
+		fprintf(FP, "Time spend in printDistGraph %.5f\n", (t1-t5)/(float)CLOCKS_PER_SEC);
     }
 
 
     if(MPIcontrol.rank==0)
     { 
-	nodeGraph->recvBufDistNodeGraph(rBuf, &parameters, &MPIcontrol);
-	if(parameters.kmerGraphFlag)  
-	{
-		nodeGraph->printKmerGraph(&parameters, &MPIcontrol);
-		nodeGraph->nodes.clear();
-		MPIcontrol.finalize();
-		return 0;
-        }
-
-//    	nodeGraph->checkDistNodeGraph();
-//	nodeGraph->checkLocalNodeGraph(&parameters);
+		nodeGraph->recvBufDistNodeGraph(rBuf, &parameters, &MPIcontrol);
+		if(parameters.kmerGraphFlag)  
+		{
+			nodeGraph->printKmerGraph(&parameters, &MPIcontrol);
+			nodeGraph->nodes.clear();
+			MPIcontrol.finalize();
+			return 0;
+	    }
 	
-	t6 = clock();
-	fprintf(FP, "Time spend in reading DistGraph  %.5f\n", (t6-t1)/(float)CLOCKS_PER_SEC);
+		t6 = clock();
+		fprintf(FP, "Time spend in reading DistGraph  %.5f\n", (t6-t1)/(float)CLOCKS_PER_SEC);
 
-	nodeGraph->masterSimplifyNodeGraph(&parameters, &MPIcontrol); 
+		nodeGraph->masterSimplifyNodeGraph(&parameters, &MPIcontrol); 
     	printf("proc:%d masterSimplifyNodeGraph  end\n", MPIcontrol.rank);
 
         nodeGraph->printContigs(&parameters, &MPIcontrol);
 	
         for(int i=0;i<4;i++)
-	{	
-		nodeGraph->masterTipsRemoval(&parameters, &MPIcontrol);
+		{	
+			nodeGraph->masterTipsRemoval(&parameters, &MPIcontrol);
     		printf("proc:%d masterTipsRemoval end\n", MPIcontrol.rank);
-		nodeGraph->masterSimplifyNodeGraph(&parameters, &MPIcontrol); 
+			nodeGraph->masterSimplifyNodeGraph(&parameters, &MPIcontrol); 
     		printf("proc:%d masterSimplifyNodeGraph  end\n", MPIcontrol.rank);
 	
-		nodeGraph->masterLowCoverageEdgeRemoval(&parameters, &MPIcontrol);
+			nodeGraph->masterLowCoverageEdgeRemoval(&parameters, &MPIcontrol);
     		printf("proc:%d masterLowCoverageEdgeRemoval  end\n", MPIcontrol.rank);
 
-		nodeGraph->masterSimplifyNodeGraph(&parameters, &MPIcontrol); 
+			nodeGraph->masterSimplifyNodeGraph(&parameters, &MPIcontrol); 
     		printf("proc:%d masterSimplifyNodeGraph  end\n", MPIcontrol.rank);
 
-                nodeGraph->masterLoopBubbleRemoval(&parameters, &MPIcontrol);
-                printf("proc:%d LoopBubbleRemoval end\n", MPIcontrol.rank);
-                nodeGraph->masterMultipleEdgeBubbleRemoval(&parameters, &MPIcontrol);
-                printf("proc:%d MultipleEdgeRemoval end\n", MPIcontrol.rank);
-                nodeGraph->masterSimplifyNodeGraph(&parameters, &MPIcontrol);
-                printf("proc:%d masterSimplifyNodeGraph end\n", MPIcontrol.rank);
-                nodeGraph->masterGraphStatistic(&parameters, &MPIcontrol);
+            nodeGraph->masterLoopBubbleRemoval(&parameters, &MPIcontrol);
+            printf("proc:%d LoopBubbleRemoval end\n", MPIcontrol.rank);
+            nodeGraph->masterMultipleEdgeBubbleRemoval(&parameters, &MPIcontrol);
+            printf("proc:%d MultipleEdgeRemoval end\n", MPIcontrol.rank);
+            nodeGraph->masterSimplifyNodeGraph(&parameters, &MPIcontrol);
+            printf("proc:%d masterSimplifyNodeGraph end\n", MPIcontrol.rank);
+            nodeGraph->masterGraphStatistic(&parameters, &MPIcontrol);
         }
 
         nodeGraph->masterRemoveCrossEdge(&parameters, &MPIcontrol);
@@ -3680,15 +2708,15 @@ int main (int argc, char *argv[])
         fprintf(FP, "Time spend in Contig Extension %.5f\n", (t7-t1)/(float)CLOCKS_PER_SEC);
 
         nodeGraph->masterPrintContigs(&parameters, &MPIcontrol);
-        if(parameters.JungGraphFlag)    nodeGraph->printJungGraph(&parameters, &MPIcontrol);
+        if(parameters.JungGraphFlag)    
+        	nodeGraph->printJungGraph(&parameters, &MPIcontrol);
         nodeGraph->nodes.clear();
     }
 
     if(MPIcontrol.rank==0)
     {
         t5 = clock();
-//	sprintf(message, "Time spend in All step %.5f\n", (t5)/(float)CLOCKS_PER_SEC);
-//	MPIcontrol.print(message, FP);
+
         fprintf(FP, "Time spend in All step %.5f\n", (t5)/(float)CLOCKS_PER_SEC);
         fclose(FP);
     }

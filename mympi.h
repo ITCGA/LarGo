@@ -55,6 +55,7 @@ public:
 	clock_t            locateTime, readTime;
 	//process status
         MPI_Status status;
+        MPI_Datatype MPI_LKmer;
 
 public:
         void init(int argc, char **argv);

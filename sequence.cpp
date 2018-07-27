@@ -41,7 +41,7 @@ void parameter::getopt(int argc, char **argv)
 		}
 		ret = sscanf(argv[i+1], "%d", &this->hashLength);
 		i++;
-		if(ret!=1 || this->hashLength<19 || this->hashLength>31 || this->hashLength%2!=1)	
+		if(ret!=1 || this->hashLength<19 || this->hashLength>127 || this->hashLength%2!=1)	
 		{
 		    printf("Error: -k needs a value (odd number between 18 and 32) for the kmer size\n");
 		    printf("Usage: %s -k <kmerlength> -c <cutoff Threshod> -i <input Fasta data> -o <output data directory>\n",argv[0]);
@@ -129,7 +129,7 @@ void parameter::getParameters(int argc, char **argv, MPIEnviroment *MPIcontrol)
     	if(stat==-1)	
     	{
 		printf("Error: Creating directory %s\n", this->outputPath);
-		exit(0);
+		// exit(0);
     	} 
        
 
@@ -177,7 +177,6 @@ void parameter::getParameters(int argc, char **argv, MPIEnviroment *MPIcontrol)
     this->nucleotideReverse[(int)ch2] = 'C';
     this->nucleotideReverse[(int)ch3] = 'A';
 
-    this->MASK = ~(3ull<<(2*hashLength));
     this->filterThreshold = Filter_Threshold;
  //   this->arcThreshold    = 5;
 }

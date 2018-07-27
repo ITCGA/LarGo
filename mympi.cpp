@@ -1,7 +1,7 @@
 #include "mpi.h"
 #include "mympi.h"
 
-#define ReadLength     100
+#define ReadLength     300
 #define PreReadLen    (ReadLength*3)
 
 void MPIEnviroment::init(int argc, char *argv[])
@@ -13,6 +13,15 @@ void MPIEnviroment::init(int argc, char *argv[])
 	MPI_Comm_rank(MPI_COMM_WORLD, &rank);
 	MPI_Comm_size(MPI_COMM_WORLD, &nprocs);
 	MPI_Get_processor_name(processor_name, &namelen);
+	// 初始化LKmer
+	int blockcounts[1];
+	blockcounts[0] = 4;
+	MPI_Aint offsets[1];
+	offsets[0] = 0;
+	MPI_Datatype old_types[1];
+	old_types[0] = MPI_LONG_LONG_INT;
+	MPI_Type_struct(1,blockcounts,offsets,old_types,&MPI_LKmer);
+	MPI_Type_commit(&MPI_LKmer);
 }
 
 void MPIEnviroment::print(const char *message)

@@ -2,83 +2,213 @@
 #include "mympi.h"
 #include "kmerGraph.h"
 
-unsigned long long kmerGraph::reverseComplement(unsigned long long a, parameter *parameters)
+LKmer operator>>(const LKmer& node, int k){
+    LKmer tmp;
+	tmp.seq3 = node.seq3 >> k%64 | node.seq2 << (64 - k%64);
+	tmp.seq2 = node.seq2 >> k%64 | node.seq1 << (64 - k%64);
+	tmp.seq1 = node.seq1 >> k%64 | node.seq0 << (64 - k%64);
+	tmp.seq0 = node.seq0 >> k%64;
+	while(k >= 64)
+	{
+		tmp.seq3=tmp.seq2;
+		tmp.seq2=tmp.seq1;
+		tmp.seq1=tmp.seq0;
+		tmp.seq0=0;
+		k -= 64;
+	}
+    return tmp;
+}
+LKmer operator<<(const LKmer& node, int k){ //仿佛有问题
+    LKmer tmp;
+	if(k%64 != 0)
+	{
+		tmp.seq0 = node.seq0 << k%64 | node.seq1 >> (64 - k%64);
+		tmp.seq1 = node.seq1 << k%64 | node.seq2 >> (64 - k%64);
+		tmp.seq2 = node.seq2 << k%64 | node.seq3 >> (64 - k%64);
+		tmp.seq3 = node.seq3 << k%64 ;
+	}
+	else
+		tmp = node;
+	while(k >= 64)
+	{
+		tmp.seq0=tmp.seq1;
+		tmp.seq1=tmp.seq2;
+		tmp.seq2=tmp.seq3;
+		tmp.seq3=0;
+		k -= 64;
+	}
+    return tmp;
+}
+
+bool operator==(const LKmer& node0, const LKmer& node1){
+    if (node0.seq3 == node1.seq3 && node0.seq2 == node1.seq2 && node0.seq1 == node1.seq1 && node0.seq0 == node1.seq0)
+    	return true;
+    else
+    	return false;
+}
+bool operator!=(LKmer& node0, const LKmer& node1){
+    if (node0.seq3 == node1.seq3 && node0.seq2 == node1.seq2 && node0.seq1 == node1.seq1 && node0.seq0 == node1.seq0)
+    	return false;
+    else
+    	return true;
+}
+unsigned int operator&(const LKmer& node0, unsigned int op_num)
 {
-        unsigned long long rev = 0;
+	return node0.seq3&op_num;
+}
+int operator&(const LKmer& node0, int op_num)
+{
+	return node0.seq3&op_num;
+}
+LKmer operator&(const LKmer& node0, const LKmer& node1)
+{
+	LKmer tmp;
+	tmp.seq3 = node0.seq3 & node1.seq3;
+	tmp.seq2 = node0.seq2 & node1.seq2;
+	tmp.seq1 = node0.seq1 & node1.seq1;
+	tmp.seq0 = node0.seq0 & node1.seq0;
+	return tmp;
+}
+
+int operator|(LKmer& node0, int op_num)
+{
+	return node0.seq3|op_num;
+}
+
+LKmer operator~(const LKmer& node0)
+{
+	LKmer tmp;
+	tmp.seq3 = ~node0.seq3;
+	tmp.seq2 = ~node0.seq2;
+	tmp.seq1 = ~node0.seq1;
+	tmp.seq0 = ~node0.seq0;
+	return tmp;
+}
+
+bool operator>(LKmer& node0, LKmer& node1)
+{
+	if (node0.seq0>node1.seq0)
+		return true;
+	else if(node0.seq0<node1.seq0)
+		return false;
+	else if(node0.seq1>node1.seq1)
+		return true;
+	else if(node0.seq1<node1.seq1)
+		return false;
+	else if(node0.seq2>node1.seq2)
+		return true;
+	else if(node0.seq2<node1.seq2)
+		return false;
+	else if(node0.seq3>node1.seq3)
+		return true;
+	else 
+		return false;
+}
+
+bool operator<(LKmer& node0, LKmer& node1)
+{
+	if (node0.seq0<node1.seq0)
+		return true;
+	else if(node0.seq0>node1.seq0)
+		return false;
+	else if(node0.seq1<node1.seq1)
+		return true;
+	else if(node0.seq1>node1.seq1)
+		return false;
+	else if(node0.seq2<node1.seq2)
+		return true;
+	else if(node0.seq2>node1.seq2)
+		return false;
+	else if(node0.seq3<node1.seq3)
+		return true;
+	else 
+		return false;
+}
+
+void operator<<=(LKmer& node, int k)
+{
+	node = node << k;
+}
+
+void operator>>=(LKmer& node, int k)
+{
+	node = node >> k;
+}
+void operator|=(LKmer& node0, unsigned long long op_num)
+{
+	node0.seq3 = node0.seq3 | op_num;
+}
+
+void operator&=(LKmer& node0, LKmer& node1)
+{
+	node0.seq3 = node0.seq3 & node1.seq3;
+	node0.seq2 = node0.seq2 & node1.seq2;
+	node0.seq1 = node0.seq1 & node1.seq1;
+	node0.seq0 = node0.seq0 & node1.seq0;
+
+}
+
+LKmer kmerGraph::reverseComplement(LKmer a, parameter *parameters)
+{
+        LKmer rev = 0;
         for(int i=0; i<parameters->hashLength; i++){
                 rev <<= 2;
-                rev |= (3-a&3);
+                rev |= (3-a.seq3&3);
                 a >>= 2;
         }
         return rev;
 }
 
-unsigned long long kmerGraph::stringToLongLong(const char *buf, int start, int end, parameter *parameters)
+LKmer kmerGraph::stringToLongLong(const char *buf, int start, int end, parameter *parameters)
 {
-        unsigned long long ret = 0;
+        LKmer ret = 0;
         for(int i=start; i<end; i++){
-                ret <<= 2;
+                ret = ret << 2;
                 ret |= (unsigned long long)parameters->nucleotideValue[buf[i]]&3;
         }
+
         return ret;
 }
 
-string kmerGraph::longLongToString(unsigned long long a, parameter *parameters)
+string kmerGraph::longLongToString(LKmer a, parameter *parameters)
 {
 	string descriptor;
         descriptor.clear();
         for(int i=0;i<parameters->hashLength;i++)
         {
-                descriptor += parameters->nucleotideArray[a%4];
+                descriptor += parameters->nucleotideArray[a&3];
                 a = a>>2;
         }
         reverse(descriptor.begin(), descriptor.end());
 	return descriptor;
 }
 
-int kmerGraph::arcPos(unsigned long long &A, unsigned long long &B, char directA, char directB, int hashLength)
+int kmerGraph::arcPos(LKmer &A, LKmer &B, char directA, char directB, int hashLength)
 {
 	int lastB;
-	if(directB=='+')	lastB = B%4;
-	else			lastB = 3-(B>>((hashLength-1)*2));
+	if(directB=='+')
+		lastB = B & 3;
+	else
+		lastB = (~(B>>((hashLength-1)*2) & 3)) & 3;   //******** by zhu.
 	
-	if(directA=='-')	lastB += 4;
+	if(directA=='-')
+		lastB += 4;
 	return lastB;
 }
 
-/*
-unsigned long long kmerGraph::getProcsID(unsigned long long kmerID, int hashLength, MPIEnviroment *MPIcontrol)
+unsigned long long kmerGraph::getProcsID(LKmer kmerID, int hashLength, MPIEnviroment *MPIcontrol)
 {
-	unsigned long long ret = 0, tmpID = kmerID;
-	for(int i=0;i<hashLength;i++)
-	{
-		ret = ret * 4;
-//		ret |= ((unsigned long long)3 - (tmpID&(unsigned long long)3));
-		ret += (3 - tmpID%4);
-		tmpID = tmpID / 4;	
-	}
-//	ret = ret ^ kmerID;
-//	return ( (ret % (unsigned long long) MersPrime) % (unsigned long long) MPIcontrol->nprocs);	
-//	return ( (ret ) % (unsigned long long) MPIcontrol->nprocs);	
-	if(ret<kmerID)	ret = kmerID;
-	
-	double tmp = ((sqrt(5.0)-1)/2) * ret ;
-	double rr  = tmp - floor(tmp);
-	return floor(rr * MPIcontrol->nprocs);
-}
-*/
 
-unsigned long long kmerGraph::getProcsID(unsigned long long kmerID, int hashLength, MPIEnviroment *MPIcontrol)
-{
-        unsigned long long revKmer = 0, tmpID = kmerID;
-        for(int i=0;i<hashLength;i++)
-        {
-                revKmer = revKmer * 4;
-                revKmer += ( 3 - tmpID%4 );
-                tmpID = tmpID / 4;
+        LKmer revKmer = 0, tmpID = kmerID;
+        for(int i=0; i<hashLength; i++){
+                revKmer <<= 2;
+                revKmer = revKmer | (~(tmpID&3))&3;
+                tmpID >>= 2;
         }
 
         if(revKmer>kmerID) revKmer = kmerID;
+        // printf("kmer: %llu\n", kmerID.seq3);
+        // printf("rev_kmer: %llu\n", revKmer.seq3); 
 
          unsigned int factor = 19;
          unsigned int numBytes = (hashLength + 3) / 4;
@@ -96,6 +226,7 @@ int kmerGraph::constructKmerGraph(parameter *parameters, MPIEnviroment *MPIcontr
 {
 	clock_t t0, t1, t2;
 	t0 = clock();
+	LKmer MASK = ~((LKmer)3<<(2*parameters->hashLength));
 
 	unsigned long long readBases = MPIcontrol->nprocs*1024*16;
 	if(readBases>BUF_SIZE)	readBases = BUF_SIZE;		
@@ -195,19 +326,13 @@ int kmerGraph::constructKmerGraph(parameter *parameters, MPIEnviroment *MPIcontr
 
 
 	size  = tot_kmer_num;
-	kmers = new unsigned long long 	[size];
+	kmers = new LKmer 	[size];
 	arcs  = new unsigned char 	[size];
 
 	readPos = readBuf+readStart;
 	unsigned long long kmer_index=0;
 	while(readPos < readBuf + readRound*readBases)
 	{
-//         	if((read_pos+i)%100000==0) 
-//		{	
-//			char localstr[100];
-//			sprintf(localstr, "construct graph: %d (readCount=%d)", read_pos+i, sequences->readCount);
-//			MPIcontrol->print(localstr);
-//		}
 		
 		char *readStr = strstr(readPos, "\n");
 		if(readStr==NULL)	break;
@@ -234,15 +359,18 @@ int kmerGraph::constructKmerGraph(parameter *parameters, MPIEnviroment *MPIcontr
 
 	//	printf("Proc %d: readStart=%llu, readPos=%llu, readStr=%llu, readDelimiter=%llu\n", MPIcontrol->rank, readStart, readPos-readBuf, readStr-readBuf, readDelimiter-readBuf);
                 
-		unsigned long long curNodeID=0,     primeNodeID=0,   	twinNodeID=0;
-		unsigned long long preNodeID=0,     prePrimeNodeID=0; 
+		LKmer curNodeID=0,     primeNodeID=0,   	twinNodeID=0;
+		LKmer preNodeID=0,     prePrimeNodeID=0; 
 
                 curNodeID = this->stringToLongLong(readStr, 0, parameters->hashLength-1, parameters);
+                // printf("CurNode: %s\n", kmerGraph::longLongToString(curNodeID, parameters).c_str());
                 for(int j=0; j<=len-parameters->hashLength; j++) {
                 	curNodeID <<= 2;
+                	// printf("1:%s\n", kmerGraph::longLongToString(curNodeID, parameters).c_str());
                 	curNodeID |= (parameters->nucleotideValue[readStr[j+parameters->hashLength-1]]&(3ull));
-                	curNodeID &= parameters->MASK;
-
+                	// printf("2:%s\n", kmerGraph::longLongToString(curNodeID, parameters).c_str());
+                	curNodeID &= MASK;
+                	// printf("3:%s\n", kmerGraph::longLongToString(curNodeID, parameters).c_str());
                 	twinNodeID  = this->reverseComplement(curNodeID, parameters);
                 	primeNodeID = (curNodeID>twinNodeID) ? curNodeID : twinNodeID;
 
@@ -311,34 +439,13 @@ int kmerGraph::constructKmerGraph(parameter *parameters, MPIEnviroment *MPIcontr
 
 void kmerGraph::printKmerGraph(parameter *parameters, MPIEnviroment *MPIcontrol)
 {
-	/*hash_map<unsigned long long, kmer>::iterator it;	
-	for(it=kmers.begin();it!=kmers.end();it++)
-	{
-	
-		kmer tmp = it->second;
-		string descriptor = this->longLongToString(tmp.kmerID, parameters);		
-		printf("proc:%d ID=%lld, Descriptor=%s\n",MPIcontrol->rank, it->first, descriptor.c_str());
-		for(int i=0;i<4;i++)
-		{
-			if(tmp.arcs&(1<<i))
-			printf("proc:%d -(%c|%d)-",MPIcontrol->rank, parameters->nucleotideArray[i], tmp.multiplicity[i]); 
-		} 
-		printf("\n");
-
-		for(int i=4;i<8;i++)
-		{
-			if(tmp.arcs&(1<<i))
-			printf("proc:%d -(%c|%d)-",MPIcontrol->rank, parameters->nucleotideArray[i-4], tmp.multiplicity[i]); 
-		} 
-		printf("\nproc:%d--------------------------------------\n", MPIcontrol->rank);
-	}*/
 }
 
 void kmerGraph::distributeKmerGraph(parameter *parameters, MPIEnviroment *MPIcontrol)
 {
 	clock_t startTime, endTime;
 	startTime = clock();
-	unsigned long long *kmers_send = new unsigned long long [size];
+	LKmer *kmers_send = new LKmer [size];
 	assert(kmers_send != NULL);
 	unsigned char      *arcs_send  = new unsigned char      [size];
 	assert(arcs_send != NULL);
@@ -403,17 +510,24 @@ void kmerGraph::distributeKmerGraph(parameter *parameters, MPIEnviroment *MPIcon
 
 	delete kmers;
 	delete arcs;
-	kmers = new unsigned long long [recv_sum];
+	kmers = new LKmer [recv_sum];
 	assert(kmers!=NULL);
 	arcs  = new unsigned char      [recv_sum];
 	assert(arcs!=NULL);
 
 	clock_t t1 = clock();
-	MPI_Alltoallv(kmers_send,send_size,send_pos, MPI_LONG_LONG_INT, kmers,recv_size,recv_pos, MPI_LONG_LONG_INT, MPI_COMM_WORLD);	
+	MPI_Alltoallv(kmers_send,send_size,send_pos, MPIcontrol->MPI_LKmer, kmers,recv_size,recv_pos, MPIcontrol->MPI_LKmer, MPI_COMM_WORLD);	
 	clock_t t2 = clock();
 	MPI_Alltoallv(arcs_send, send_size,send_pos, MPI_CHAR,          arcs, recv_size,recv_pos, MPI_CHAR,          MPI_COMM_WORLD);
 //	printf("Proc %d: AlltoAll Finished\n", MPIcontrol->rank);
-
+	// printf("%llu %llu %llu %llu\n", kmers[888].seq3,kmers[0].seq2,kmers[0].seq1,kmers[0].seq0);
+	// printf("%llu %llu %llu %llu\n", recv_size[0],recv_size[1],recv_size[2],recv_size[3]);
+	LKmer tmmm(4611685998516522936,1020,0,0);
+	for (int xx =0;xx< send_size[MPIcontrol->rank];xx++)
+	{
+		if (kmers_send[xx].seq3 == 18446744073709488385ull)
+			printf("prod:%d, search...................",MPIcontrol->rank);
+	}
 	delete kmers_send;
 	delete arcs_send;
 	kmers_send = NULL;

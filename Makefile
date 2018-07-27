@@ -1,8 +1,8 @@
 CC=mpic++
 
-all	:swap stats
-swap    : graph.o kmerGraph.o sequence.o mympi.o
-	$(CC) -O3 graph.o kmerGraph.o sequence.o mympi.o -lpthread  -o swap
+all	:Largo stats
+Largo    : graph.o kmerGraph.o sequence.o mympi.o
+	$(CC) -O3 graph.o kmerGraph.o sequence.o mympi.o -lpthread  -o Largo
 stats   :stats.cpp
 	$(CC) stats.cpp -o stats	
 

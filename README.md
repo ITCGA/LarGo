@@ -3,14 +3,15 @@ Large Scale Genome assembler
 
 Installation
 
-after install these dependencies:
+dependencies:
  * [GCC version 4.1 or larger] (http://gcc.gnu.org)
  * [MPICH version 1.4 or larger] (http://www.mpich.org)
-make
+compile and install：
+ make
 
 Parameters
 
- * 'k': size of k-mer (bp), odd number less than 127 ['23']
+ * 'k': size of k-mer (bp), odd number less than 127. ['23']
  * 'c': cutoff threshold for edges and k-melecules. ['0']
  * 'i': the dataset file in fasta format.
  * 'o': the directory for all the output files.
